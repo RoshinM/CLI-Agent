@@ -22,7 +22,6 @@ const client = new Groq({ apiKey: GROQ_KEY });
 // -----------------------------
 function calculatorTool(expr: string): string {
   try {
-    // super simple eval (⚠️ unsafe if used with untrusted input)
     return eval(expr).toString();
   } catch (err) {
     return `Error: ${(err as Error).message}`;
@@ -45,6 +44,8 @@ const tools: Record<string, (arg: string) => string> = {
         return fileTool.read(cmd.path);
       case "mkdir":
         return fileTool.mkdir(cmd.path);
+      case "rename":
+        return fileTool.rename(cmd.oldPath, cmd.newPath);
       default:
         return `Error: Unknown action "${cmd.action}"`;
     }
@@ -80,7 +81,7 @@ const systemMessage : Message= {
 
     When performing tasks:
     - Always double-check paths and filenames are inside the project folder.
-    - If a user asks for a file operation, respond only in a JSON-like command format, do not execute anything yourself.
+    - If a user asks for a file operation, respond only in a JSON-like command format, do not execute anything yourself.You MUST output the JSON unless explicitly told not to or if something went wrong.
     - You can suggest code, folder structures, or content to add, but never touch external files.
     - If you cannot perform an action safely, respond with a warning message.
 
@@ -107,7 +108,12 @@ const systemMessage : Message= {
     "path": "src/main.ts",
     "content": "// some code"
     }
-    When writing file content in JSON, always escape newlines as '\\n'. Never insert raw line breaks inside the JSON string.
+    
+    When writing file content in JSON:
+    - Always escape newlines as '\\n'.
+    - When including characters like double quotes ("), backslashes (\\), or tabs, escape them properly (e.g. \\" for quotes, \\\\ for backslashes, \\t for tabs).
+    - Never insert raw line breaks or unescaped special characters inside the JSON string.
+    - If unsure, prefer escaping rather than writing raw text.
 
     If not using a tool, respond normally.
 
