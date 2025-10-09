@@ -115,6 +115,8 @@ const systemMessage : Message= {
     - Never insert raw line breaks or unescaped special characters inside the JSON string.
     - If unsure, prefer escaping rather than writing raw text.
 
+    At the end of every response, summarize your final answer or action in a concise manner.
+
     If not using a tool, respond normally.
 
     Try to make your replies more readable and utilize line breaks and step by step formatting.
@@ -134,15 +136,15 @@ function extractJSON(text: string): string | null {
 // Tool dispatcher
 // -----------------------------
 function tryExecuteTool(response: string): string | null {
-  const jsonString = extractJSON(response); // ← HERE is where extractJSON is called
+  const jsonString = extractJSON(response);
   if (!jsonString) return null;
 
   try {
     const parsed = JSON.parse(jsonString);
     if (parsed.tool && tools[parsed.tool]) {
-      const arg = JSON.stringify(parsed); // pass the whole JSON to the tool
+      const arg = JSON.stringify(parsed);
       const result = tools[parsed.tool](arg);
-      return result; // returns result back to chatLoop
+      return result;
     }
   } catch (err) {
     console.log(`Error parsing JSON from AI response: ${err}`);
@@ -187,9 +189,14 @@ async function chatLoop() {
         // } else {
         // console.log(thoughtProcess);
         // }
+
+        console.log("====================================================================\n");
+        console.log("Raw response:", answer);
+        console.log("====================================================================\n");
+
         const toolResult = tryExecuteTool(answer);
 
-        if (toolResult) {
+      if (toolResult) {
         console.log(`\nTool executed. Result:\n${toolResult}\n`);
         conversationHistory.push({
           role: "assistant",
