@@ -92,11 +92,12 @@ const systemMessage : Message= {
     You have access to the following tools, use them if you think the users query requires the utilization of a tool:
     1. calculator: evaluates math expressions, usage: 'calculator: 2+3'
     2. echo: repeats any text, usage: 'echo: hello'
-    3. file_tool: can read, write, or create folders in the project safely. Only JSON format must be used. Example:
+    3. file_tool: can read, write, rename or create folders in the project safely. Only JSON format must be used. The actions are "write", "read", "mkdir" and "rename". Example:
     
     when calling tool always use the format:
     Thought Process: ...
     
+    (this is mandatory)
     { "tool": "file_tool", "action": "read", "path": "src/main.ts" }
 
     Answer: <short natural language reply>
@@ -114,6 +115,8 @@ const systemMessage : Message= {
     - When including characters like double quotes ("), backslashes (\\), or tabs, escape them properly (e.g. \\" for quotes, \\\\ for backslashes, \\t for tabs).
     - Never insert raw line breaks or unescaped special characters inside the JSON string.
     - If unsure, prefer escaping rather than writing raw text.
+
+    At the end of every response, summarize your final answer or action in a concise manner.
 
     If not using a tool, respond normally.
 
@@ -134,15 +137,15 @@ function extractJSON(text: string): string | null {
 // Tool dispatcher
 // -----------------------------
 function tryExecuteTool(response: string): string | null {
-  const jsonString = extractJSON(response); // ← HERE is where extractJSON is called
+  const jsonString = extractJSON(response);
   if (!jsonString) return null;
 
   try {
     const parsed = JSON.parse(jsonString);
     if (parsed.tool && tools[parsed.tool]) {
-      const arg = JSON.stringify(parsed); // pass the whole JSON to the tool
+      const arg = JSON.stringify(parsed);
       const result = tools[parsed.tool](arg);
-      return result; // returns result back to chatLoop
+      return result;
     }
   } catch (err) {
     console.log(`Error parsing JSON from AI response: ${err}`);
@@ -187,9 +190,14 @@ async function chatLoop() {
         // } else {
         // console.log(thoughtProcess);
         // }
+
+        console.log("====================================================================\n");
+        console.log("Raw response:", answer);
+        console.log("====================================================================\n");
+
         const toolResult = tryExecuteTool(answer);
 
-        if (toolResult) {
+      if (toolResult) {
         console.log(`\nTool executed. Result:\n${toolResult}\n`);
         conversationHistory.push({
           role: "assistant",
@@ -213,4 +221,81 @@ async function chatLoop() {
   });
 }
 
-chatLoop();
+// chatLoop();
+
+// ======================Testing===========================================
+
+function collectMultilineInput(cb: (text: string) => void) {
+  const lines: string[] = [];
+
+  const onLine = (line: string) => {
+    if (line === "") {
+      rl.removeListener("line", onLine);
+      cb(lines.join("\n"));
+    } else {
+      lines.push(line);
+    }
+  };
+
+  rl.on("line", onLine);
+}
+
+function handleResponse(
+  userInput: string,
+  response: string
+) {
+  const separatorIndex = response.indexOf("\n\n");
+  const thoughtProcess =
+    separatorIndex !== -1 ? response.slice(0, separatorIndex) : "";
+  const answer =
+    separatorIndex !== -1 ? response.slice(separatorIndex + 2) : response;
+
+  if (thoughtProcess.startsWith("Thought Process:")) {
+    console.log(formatThoughtProcess(thoughtProcess));
+  }
+
+  console.log("====================================================================\n");
+  console.log("Raw response:", answer);
+  console.log("====================================================================\n");
+
+  const toolResult = tryExecuteTool(answer);
+
+  if (toolResult) {
+    console.log(`\nTool executed. Result:\n${toolResult}\n`);
+  } else {
+    console.log(`\nAI: ${answer}\n`);
+  }
+}
+
+export function mockChatLoop(
+  systemMessage: Message,
+  conversationHistory: Message[]
+) {
+  console.log("=== Mock CLI Agent (No LLM) ===");
+  console.log("Type 'exit' to quit\n");
+
+  function loop() {
+    rl.question("You: ", (userInput: string) => {
+      if (
+        userInput.toLowerCase() === "exit" ||
+        userInput.toLowerCase() === "quit"
+      ) {
+        console.log("Goodbye!");
+        rl.close();
+        return;
+      }
+
+      console.log("\n--- Paste AI response below ---");
+      console.log("(Finish with an empty line)\n");
+
+      collectMultilineInput((response) => {
+        handleResponse(userInput, response);
+        loop();
+      });
+    });
+  }
+
+  loop();
+}
+
+mockChatLoop(systemMessage, conversationHistory);

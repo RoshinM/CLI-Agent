@@ -1,0 +1,119 @@
+Step 1: Enforce a stream-safe output contract
+
+You MUST change your system prompt slightly:
+
+When responding:
+
+- All human-readable text MUST be wrapped in:
+  <COMMENTARY>...</COMMENTARY>
+
+- Any tool call MUST be wrapped in:
+  <TOOL_JSON>...</TOOL_JSON>
+
+- TOOL_JSON must contain exactly one valid JSON object
+- Do not include commentary inside TOOL_JSON
+
+Step 2: Streaming handler architecture
+State enum
+enum StreamMode {
+  TEXT,
+  TOOL_JSON,
+}
+
+Buffers
+let mode = StreamMode.TEXT;
+let textBuffer = "";
+let toolBuffer = "";
+
+Step 3: Token-level stream handling
+
+Pseudocode:
+
+for await (const chunk of stream) {
+  const token = chunk.choices[0]?.delta?.content ?? "";
+
+  if (!token) continue;
+
+  if (token.includes("<TOOL_JSON>")) {
+    mode = StreamMode.TOOL_JSON;
+    continue;
+  }
+
+  if (token.includes("</TOOL_JSON>")) {
+    mode = StreamMode.TEXT;
+    continue;
+  }
+
+  if (token.includes("<COMMENTARY>")) continue;
+  if (token.includes("</COMMENTARY>")) continue;
+
+  if (mode === StreamMode.TEXT) {
+    process.stdout.write(colorize(token));
+    textBuffer += token;
+  }
+
+  if (mode === StreamMode.TOOL_JSON) {
+    toolBuffer += token;
+  }
+}
+
+
+This:
+
+Streams text live
+
+Keeps JSON hidden
+
+Preserves ordering
+
+Step 4: Execute tool AFTER stream completes
+if (toolBuffer.trim()) {
+  const toolCall = JSON.parse(toolBuffer);
+  const result = tryExecuteTool(toolCall);
+
+  console.log("\n\nTool executed:");
+  console.log(result);
+}
+
+
+💡 Never execute mid-stream.
+
+Step 5: Coloring in real time
+
+Coloring works because:
+
+You color tokens, not lines
+
+No parsing needed
+
+Example:
+
+function colorize(token: string) {
+  if (token.includes("Warning")) return chalk.red(token);
+  if (token.includes("Success")) return chalk.green(token);
+  return chalk.white(token);
+}
+
+
+Later you can do smarter line-based colorization using \n detection.
+
+Step 6: Handling partial tags (important)
+
+Tags can split across tokens:
+
+<TOOL_
+JSON>
+
+
+So you need a rolling window:
+
+let rolling = "";
+
+rolling += token;
+if (rolling.includes("<TOOL_JSON>")) {
+  mode = StreamMode.TOOL_JSON;
+  rolling = "";
+}
+
+
+Same for closing tags.

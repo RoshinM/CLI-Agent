@@ -1,0 +1,3 @@
+to check error in files:
+=> tsc filename.ts --noEmit
+
