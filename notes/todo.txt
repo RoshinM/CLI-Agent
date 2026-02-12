@@ -1,2 +1,3 @@
+-look into whether adding system prompt in the beginning of the memory structure is required or will the system prompt be sent on every request anyway
 -git tool
 -package installing tool

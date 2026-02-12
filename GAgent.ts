@@ -59,10 +59,10 @@ const tools: Record<string, (arg: string) => string> = {
 console.log("=== Groq CLI Agent ===");
 console.log("Type 'exit' to quit\n");
 
-const rl = readline.createInterface({
-  input: process.stdin,
-  output: process.stdout,
-});
+// const rl = readline.createInterface({
+//   input: process.stdin,
+//   output: process.stdout,
+// });
 
 const BLUE = "\x1b[94m";
 const ITALIC = "\x1b[3m";
