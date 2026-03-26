@@ -1,13 +1,22 @@
 import fs from "fs";
 import path from "path";
+import { undoManager } from "../core/UndoManager.ts";
 
 // Base project directory (restricts AI to this folder)
 const PROJECT_ROOT = process.cwd();
 
-const RESTRICTED_FILES = [".env", "package.json"];
+const RESTRICTED_FILES = [".env", "package.json", "pnpm-lock.yaml", ".gitignore"];
+const RESTRICTED_DIRS = [".git", "node_modules", ".gemini", "brain"];
 
-function isRestricted(filePath: string) {
-  return RESTRICTED_FILES.some((f) => filePath.endsWith(f));
+function isRestricted(relativePath: string) {
+  const normalized = relativePath.toLowerCase();
+  const isFileRestricted = RESTRICTED_FILES.some((f) => normalized.endsWith(f.toLowerCase()));
+  const isDirRestricted = RESTRICTED_DIRS.some((d) => 
+    normalized.startsWith(d.toLowerCase() + "/") || 
+    normalized === d.toLowerCase() ||
+    normalized.includes("/" + d.toLowerCase() + "/")
+  );
+  return isFileRestricted || isDirRestricted;
 }
 
 // Helper: recursively read file structure
@@ -48,6 +57,9 @@ export const fileTool = {
       throw new Error("Access denied: outside project folder");
     if (isRestricted(relativePath))
       throw new Error("Access denied: restricted file");
+    
+    undoManager.createBackup(fullPath);
+
     fs.mkdirSync(path.dirname(fullPath), { recursive: true });
     fs.writeFileSync(fullPath, content, "utf-8");
     return `Written to ${relativePath}`;
@@ -71,6 +83,10 @@ export const fileTool = {
       throw new Error("Access denied: outside project folder");
     }
     if (!fs.existsSync(oldFullPath)) throw new Error("File does not exist");
+    
+    undoManager.createBackup(oldFullPath);
+    undoManager.createBackup(newFullPath);
+
     fs.renameSync(oldFullPath, newFullPath);
     return `Renamed ${oldPath} to ${newPath}`;
   },

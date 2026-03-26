@@ -1,0 +1,1 @@
+NOTE: If the goal is already met in the previous steps, provide a Final Summary. DO NOT call any more tools (like redundant reads) if the task is complete. Stick to JSON only for necessary actions. Efficiency is critical!

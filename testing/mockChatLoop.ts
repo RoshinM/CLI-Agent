@@ -1,176 +1,135 @@
-// ======================Testing===========================================
-
 import readline from "readline";
 import fs from "fs";
-import toolExecutor from "../tools/toolExecutor.ts";
-import type { Message } from "../types/ConversationHistory.js";
+import { ToolRegistry } from "../src/core/ToolRegistry.ts";
+import { fileTools } from "../src/tools/fileTools.ts";
+import { calculatorTool } from "../src/tools/calculatorTool.ts";
+import { systemInfoTool } from "../src/tools/systemInfoTool.ts";
+import { searchFilesTool } from "../src/tools/searchFilesTool.ts";
+import { undoTool } from "../src/tools/undoTool.ts";
+import type { Message } from "../src/types/AgentTypes.ts";
 
 const rl = readline.createInterface({
   input: process.stdin,
   output: process.stdout,
 });
 
-// ====================== Helpers =========================================
+const registry = new ToolRegistry();
+fileTools.forEach(t => registry.register(t));
+registry.register(calculatorTool);
+registry.register(systemInfoTool);
+registry.register(searchFilesTool);
+registry.register(undoTool);
+
+const conversationHistory: Message[] = [];
 
 function collectMultilineInput(cb: (text: string) => void) {
   const lines: string[] = [];
-
+  let lastWasEmpty = false;
   const onLine = (line: string) => {
     if (line.trim() === "") {
-      rl.removeListener("line", onLine);
-      cb(lines.join("\n"));
+      if (lastWasEmpty) {
+        rl.removeListener("line", onLine);
+        lines.pop(); 
+        cb(lines.join("\n"));
+      } else {
+        lastWasEmpty = true;
+        lines.push(line);
+      }
     } else {
+      lastWasEmpty = false;
       lines.push(line);
     }
   };
-
   rl.on("line", onLine);
 }
 
-function persistMemory(conversationHistory: Message[]) {
-  fs.writeFileSync(
-    "memory_dump.json",
-    JSON.stringify(conversationHistory, null, 2)
-  );
+function generatePayload(history: Message[], errorContext?: string) {
+  // Use the user's preferred combination: promptV2 + memory_dump + endPrompt
+  const promptV2 = fs.readFileSync("prompts/promptV2.txt", "utf-8");
+  const endPrompt = fs.readFileSync("prompts/endPrompt.txt", "utf-8");
+  
+  const payload = [
+    "=== SYSTEM PROMPT (V2) ===",
+    promptV2,
+    "\n=== CONVERSATION HISTORY (MEMORY DUMP) ===",
+    JSON.stringify(history, null, 2),
+    errorContext ? `\n=== ERROR FEEDBACK ===\n${errorContext}` : "",
+    "\n=== END INSTRUCTION ===",
+    endPrompt
+  ].filter(Boolean).join("\n");
+  
+  fs.writeFileSync("mock_payload.txt", payload);
+  fs.writeFileSync("memory_dump.json", JSON.stringify(history, null, 2));
 }
 
 const BLUE = "\x1b[94m";
-const ITALIC = "\x1b[3m";
+const YELLOW = "\x1b[33m";
+const RED = "\x1b[31m";
 const RESET = "\x1b[0m";
 
-function formatThoughtProcess(text: string): string {
-  return `${BLUE}${ITALIC}${text}${RESET}`;
-}
-
-// ====================== Inner Agent Loop ================================
-
-async function handleResponse(
-  userInput: string,
-  response: string,
-  conversationHistory: Message[]
-) {
-  let currentResponse = response;
-  let stepCounter = 0;
-  const MAX_STEPS = 10; // safety guard
-
-  // Save initial user message
-  conversationHistory.push({
-    role: "user",
-    content: userInput,
-  });
-
-  persistMemory(conversationHistory);
-
-  while (stepCounter < MAX_STEPS) {
-    stepCounter++;
-
-    const separatorIndex = currentResponse.indexOf("\n\n");
-    const thoughtProcess =
-      separatorIndex !== -1
-        ? currentResponse.slice(0, separatorIndex)
-        : "";
-    const answer =
-      separatorIndex !== -1
-        ? currentResponse.slice(separatorIndex + 2)
-        : currentResponse;
-
-    if (thoughtProcess.startsWith("Thought Process:")) {
-      console.log(formatThoughtProcess(thoughtProcess));
-    }
-
-    // Save assistant raw response
-    conversationHistory.push({
-      role: "assistant",
-      content: currentResponse,
-    });
-
-    persistMemory(conversationHistory);
-
-    const toolResult = toolExecutor(answer);
-
-    // 🚀 No tool detected → final answer
-    if (!toolResult) {
-      console.log(`\nAI: ${answer}\n`);
-      break;
-    }
-
-    // 🛠 Tool success
-    if (toolResult.success) {
-      console.log(`\nTool executed. Result:\n${toolResult.result}\n`);
-
-      conversationHistory.push({
-        role: "assistant",
-        content: `Tool result: ${toolResult.result}`,
-      });
-
-      persistMemory(conversationHistory);
-
-      console.log("\n--- Paste next AI response (continue reasoning) ---");
-      console.log("(Finish with empty line)\n");
-
-      currentResponse = await new Promise<string>((resolve) => {
-        collectMultilineInput((nextResponse) => {
-          resolve(nextResponse);
-        });
-      });
-
-      continue;
-    }
-
-    // ❌ Tool failed
-    console.log(`\nTool failed: ${toolResult.error}\n`);
-
-    conversationHistory.push({
-      role: "assistant",
-      content: `Tool error: ${toolResult.error}`,
-    });
-
-    persistMemory(conversationHistory);
-
-    console.log("\n--- Paste corrected AI tool JSON ---");
-    console.log("(Finish with empty line)\n");
-
-    currentResponse = await new Promise<string>((resolve) => {
-      collectMultilineInput((retryResponse) => {
-        resolve(retryResponse);
-      });
-    });
-  }
-
-  if (stepCounter >= MAX_STEPS) {
-    console.log("\n⚠️ Max steps reached. Stopping loop.\n");
-  }
-}
-
-// ====================== Outer CLI Loop ==================================
-
-export function mockChatLoop(
-  systemMessage: Message,
-  conversationHistory: Message[]
-) {
-  console.log("=== Mock CLI Agent (No LLM) ===");
+export async function mockChatLoop() {
+  console.log("=== Simplified Mock CLI Agent (JSON Mode) ===");
   console.log("Type 'exit' to quit\n");
 
-  function loop() {
-    rl.question("You: ", async (userInput: string) => {
-      if (
-        userInput.toLowerCase() === "exit" ||
-        userInput.toLowerCase() === "quit"
-      ) {
-        console.log("Goodbye!");
+  const startInteraction = async () => {
+    rl.question("\nYou: ", async (userInput) => {
+      if (userInput.toLowerCase() === "exit") {
         rl.close();
         return;
       }
 
-      console.log("\n--- Paste AI response below ---");
-      console.log("(Finish with an empty line)\n");
-
-      collectMultilineInput(async (response) => {
-        await handleResponse(userInput, response, conversationHistory);
-        loop(); // restart outer loop AFTER inner loop completes
-      });
+      conversationHistory.push({ role: "user", content: userInput });
+      await processAIResponse();
     });
-  }
+  };
 
-  loop();
+  const processAIResponse = async (context?: string) => {
+    generatePayload(conversationHistory, context);
+
+    console.log(`\n${BLUE}--- Action Required ---${RESET}`);
+    console.log(`1. Copy payload from ${YELLOW}mock_payload.txt${RESET}`);
+    console.log(`2. Paste to LLM (JSON Mode Active)`);
+    console.log(`3. Paste LLM's response below and press Enter twice:`);
+
+    collectMultilineInput(async (response) => {
+      if (!response.trim()) {
+        console.log(`${YELLOW}Empty response. Interaction reset.${RESET}`);
+        return startInteraction();
+      }
+
+      conversationHistory.push({ role: "assistant", content: response });
+      
+      // Look for JSON (pure JSON from promptV2)
+      const jsonMatch = response.match(/\{[\s\S]*\}/);
+
+      if (jsonMatch) {
+        try {
+          const parsed = JSON.parse(jsonMatch[0]);
+          console.log(`\n${YELLOW}Executing tool: ${parsed.tool}...${RESET}`);
+          const result = await registry.execute(parsed.tool, parsed);
+
+          if (result.success) {
+            const resText = `Tool Result: ${result.result}`;
+            console.log(`\n${BLUE}${resText}${RESET}`);
+            conversationHistory.push({ role: "assistant", content: resText });
+            return processAIResponse("Tool executed. Determine the next step.");
+          } else {
+            const errText = `Tool Error: ${result.error}`;
+            console.log(`\n${RED}${errText}${RESET}`);
+            conversationHistory.push({ role: "assistant", content: errText });
+            return processAIResponse(`Error: ${result.error}. Fix the JSON parameters.`);
+          }
+        } catch (e: any) {
+          console.log(`\n${RED}JSON Parsing Error: ${e.message}${RESET}`);
+          return processAIResponse(`Invalid JSON: ${e.message}. Ensure proper escaping.`);
+        }
+      } else {
+        // Natural language response
+        console.log(`\n${BLUE}AI Response:${RESET}\n${response}`);
+        return startInteraction();
+      }
+    });
+  };
+
+  startInteraction();
 }

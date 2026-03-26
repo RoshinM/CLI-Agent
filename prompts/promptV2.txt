@@ -9,25 +9,31 @@ const systemMessage: Message = {
   - If a requested path is outside the project, respond with a warning message.
   - Do not explain security rules unless necessary.
 
+  CRITICAL PLANNING RULES:
+  1. **Think Before Tooling**: Every JSON response MUST include a "thought" field describing your reasoning, current progress, relative to history, and next steps.
+  2. **Read Before Write**: You must use `file_tool` with action `read` before modifying ANY existing file.
+  3. **Atomic Steps & Loop Awareness**: You are in a loop. Do only ONE tool action per response. Check the conversation history to see what was done previously.
+  
   TOOL USAGE:
   You have access to:
   - calculator
   - echo
-  - file_tool (actions: "write", "read", "mkdir", "rename")
+  - file_tool (actions: "write", "read", "mkdir", "rename", "list")
+  - undo (reverts the last file change)
 
   CRITICAL OUTPUT RULES:
 
   1. If a task requires file I/O, respond with ONLY a valid JSON object.
-  2. Do NOT include explanations, thoughts, summaries, or extra text.
+  2. The JSON must contain a "thought" field and a "tool" field (if using one).
   3. The response must be pure JSON — no markdown, no commentary.
   4. The JSON must be valid and parsable.
 
-  File write format:
+  Example Tool Call:
   {
+    "thought": "I need to read the main file to see where the function is defined before I can add a try/catch.",
     "tool": "file_tool",
-    "action": "write",
-    "path": "relative/path/to/file.ts",
-    "content": "file contents here"
+    "action": "read",
+    "path": "src/main.ts"
   }
 
   JSON FORMATTING RULES:

@@ -2,6 +2,7 @@ import { conversationHistory } from "../context/memory";
 import toolExecutor from "../tools/toolExecutor";
 import { Message } from "../types/ConversationHistory";
 import readline from "readline";
+import persistMemory from "./persistMemory";
 
 export default async function innerLoopModule(
   answer: string,
@@ -12,35 +13,38 @@ export default async function innerLoopModule(
   const MAX_RETRIES = 3;
 
   while (retries < MAX_RETRIES) {
+
+    // Save the assistant response (tool call)
+    conversationHistory.push({
+      role: "assistant",
+      content: currentResponse,
+    });
+
+    await persistMemory(conversationHistory);
+
     const toolExecution = toolExecutor(currentResponse);
 
-    if (!toolExecution) break;
+    // No tool detected → final answer
+    if (!toolExecution) {
+      console.log("\nFinal Answer:\n", currentResponse, "\n");
+      break;
+    }
 
+    // Tool succeeded
     if (toolExecution.success) {
       console.log(`\nTool executed. Result:\n${toolExecution.result}\n`);
 
+      // Save tool output correctly
       conversationHistory.push({
-        role: "assistant",
-        content: `Tool result: ${toolExecution.result}`,
+        role: "tool",
+        content: toolExecution.result!,
       });
 
-      break;
-    } else {
-      retries++;
+    await persistMemory(conversationHistory);
 
-      console.log(`\nTool failed: ${toolExecution.error}\n`);
 
-      const errorPrompt = `
-The previous tool call failed with this error:
-${toolExecution.error}
-
-Fix the JSON and resend ONLY valid tool JSON.
-`;
-
-      conversationHistory.push({ role: "assistant", content: currentResponse });
-      conversationHistory.push({ role: "user", content: errorPrompt });
-
-      console.log("\n--- Paste corrected LLM response below ---");
+      // Ask LLM to continue reasoning
+      console.log("\n--- Paste next LLM response (continue reasoning) ---");
       console.log("(Finish with empty line)\n");
 
       await new Promise<void>((resolve) => {
@@ -49,7 +53,42 @@ Fix the JSON and resend ONLY valid tool JSON.
           resolve();
         });
       });
+
+      // Reset retry counter after successful tool execution
+      retries = 0;
+      continue;
     }
+
+    // Tool failed
+    retries++;
+
+    console.log(`\nTool failed: ${toolExecution.error}\n`);
+
+    const errorPrompt = `
+The previous tool call failed with this error:
+${toolExecution.error}
+
+Fix the JSON and resend ONLY valid tool JSON.
+`;
+
+    conversationHistory.push({
+      role: "user",
+      content: errorPrompt,
+    });
+
+    console.log("\n--- Paste corrected LLM response ---");
+    console.log("(Finish with empty line)\n");
+
+    await new Promise<void>((resolve) => {
+      collectMultilineInput((response) => {
+        currentResponse = response;
+        resolve();
+      });
+    });
+  }
+
+  if (retries >= MAX_RETRIES) {
+    console.log("\n Max retries reached. Stopping.\n");
   }
 }
 
@@ -62,7 +101,6 @@ function collectMultilineInput(cb: (text: string) => void) {
   const lines: string[] = [];
 
   const onLine = (line: string) => {
-    // Stop when user presses Enter on empty line
     if (line.trim() === "") {
       rl.removeListener("line", onLine);
       rl.close();
@@ -75,4 +113,3 @@ function collectMultilineInput(cb: (text: string) => void) {
 
   rl.on("line", onLine);
 }
-
