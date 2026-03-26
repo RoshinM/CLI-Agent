@@ -1,1 +1,1 @@
-NOTE: If the goal is already met in the previous steps, provide a Final Summary. DO NOT call any more tools (like redundant reads) if the task is complete. Stick to JSON only for necessary actions. Efficiency is critical!
+NOTE: You must respond in JSON every single time or the system will break. If the goal is already met, return a final JSON object with "thought" and "message". If another action is needed, return a JSON tool call with "thought", "tool", and the required arguments. Never output plain text outside JSON.

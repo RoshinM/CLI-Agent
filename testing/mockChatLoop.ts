@@ -7,6 +7,7 @@ import { systemInfoTool } from "../src/tools/systemInfoTool.ts";
 import { searchFilesTool } from "../src/tools/searchFilesTool.ts";
 import { undoTool } from "../src/tools/undoTool.ts";
 import type { Message } from "../src/types/AgentTypes.ts";
+import { parseModelResponse } from "../src/core/responseParser.ts";
 
 const rl = readline.createInterface({
   input: process.stdin,
@@ -44,13 +45,13 @@ function collectMultilineInput(cb: (text: string) => void) {
 }
 
 function generatePayload(history: Message[], errorContext?: string) {
-  // Use the user's preferred combination: promptV2 + memory_dump + endPrompt
-  const promptV2 = fs.readFileSync("prompts/promptV2.txt", "utf-8");
+  // Use strict JSON promptV3 + memory dump + end prompt
+  const promptV3 = fs.readFileSync("prompts/promptV3.txt", "utf-8");
   const endPrompt = fs.readFileSync("prompts/endPrompt.txt", "utf-8");
   
   const payload = [
-    "=== SYSTEM PROMPT (V2) ===",
-    promptV2,
+    "=== SYSTEM PROMPT (V3) ===",
+    promptV3,
     "\n=== CONVERSATION HISTORY (MEMORY DUMP) ===",
     JSON.stringify(history, null, 2),
     errorContext ? `\n=== ERROR FEEDBACK ===\n${errorContext}` : "",
@@ -99,35 +100,32 @@ export async function mockChatLoop() {
 
       conversationHistory.push({ role: "assistant", content: response });
       
-      // Look for JSON (pure JSON from promptV2)
-      const jsonMatch = response.match(/\{[\s\S]*\}/);
+      const parsed = parseModelResponse(response);
 
-      if (jsonMatch) {
-        try {
-          const parsed = JSON.parse(jsonMatch[0]);
-          console.log(`\n${YELLOW}Executing tool: ${parsed.tool}...${RESET}`);
-          const result = await registry.execute(parsed.tool, parsed);
+      if (parsed.kind === "tool-call") {
+        console.log(`\n${YELLOW}Executing tool: ${parsed.toolCall.tool}...${RESET}`);
+        const result = await registry.execute(parsed.toolCall.tool, parsed.toolCall.args);
 
-          if (result.success) {
-            const resText = `Tool Result: ${result.result}`;
-            console.log(`\n${BLUE}${resText}${RESET}`);
-            conversationHistory.push({ role: "assistant", content: resText });
-            return processAIResponse("Tool executed. Determine the next step.");
-          } else {
-            const errText = `Tool Error: ${result.error}`;
-            console.log(`\n${RED}${errText}${RESET}`);
-            conversationHistory.push({ role: "assistant", content: errText });
-            return processAIResponse(`Error: ${result.error}. Fix the JSON parameters.`);
-          }
-        } catch (e: any) {
-          console.log(`\n${RED}JSON Parsing Error: ${e.message}${RESET}`);
-          return processAIResponse(`Invalid JSON: ${e.message}. Ensure proper escaping.`);
+        if (result.success) {
+          const resText = `Tool Result: ${result.result}`;
+          console.log(`\n${BLUE}${resText}${RESET}`);
+          conversationHistory.push({ role: "assistant", content: resText });
+          return processAIResponse("Tool executed. Determine the next step.");
         }
-      } else {
-        // Natural language response
-        console.log(`\n${BLUE}AI Response:${RESET}\n${response}`);
-        return startInteraction();
+
+        const errText = `Tool Error: ${result.error}`;
+        console.log(`\n${RED}${errText}${RESET}`);
+        conversationHistory.push({ role: "assistant", content: errText });
+        return processAIResponse(`Error: ${result.error}. Fix the tool call arguments and try again.`);
       }
+
+      if (parsed.kind === "invalid") {
+        console.log(`\n${RED}Response Format Error: ${parsed.reason}${RESET}`);
+        return processAIResponse(`Invalid response format: ${parsed.reason} Study the previous error, infer what went wrong, and return a corrected response.`);
+      }
+
+      console.log(`\n${BLUE}AI Response:${RESET}\n${parsed.message}`);
+      return startInteraction();
     });
   };
 

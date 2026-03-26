@@ -1,6 +1,7 @@
 import { Groq } from "groq-sdk";
 import type { Message, ToolResult } from "../types/AgentTypes.ts";
 import { ToolRegistry } from "./ToolRegistry.ts";
+import { parseModelResponse, type ParsedResponse } from "./responseParser.ts";
 
 export class Agent {
   private client: Groq;
@@ -8,6 +9,7 @@ export class Agent {
   private model: string;
   private conversationHistory: Message[] = [];
   private systemMessage: Message;
+  private readonly maxRepairAttempts = 2;
 
   constructor(apiKey: string, registry: ToolRegistry, systemContent: string, model: string = "llama-3.3-70b-versatile") {
     this.client = new Groq({ apiKey });
@@ -26,63 +28,62 @@ export class Agent {
 
   async runStep(userInput: string): Promise<{ answer: string; thought: string; toolResult?: ToolResult }> {
     this.conversationHistory.push({ role: "user", content: userInput });
+    const response = await this.getValidatedResponse();
+    this.conversationHistory.push({ role: "assistant", content: response.raw });
 
-    const messages = [this.systemMessage, ...this.conversationHistory];
-
-    const completion = await this.client.chat.completions.create({
-      model: this.model,
-      messages,
-      temperature: 0.7,
-      max_completion_tokens: 2000,
-    });
-
-    const response = completion.choices[0]?.message?.content || "";
-    this.conversationHistory.push({ role: "assistant", content: response });
-
-    const { thought, answer, toolCall } = this.parseResponse(response);
-
-    if (toolCall) {
-      const toolResult = await this.registry.execute(toolCall.tool, toolCall.args);
+    if (response.kind === "tool-call") {
+      const toolResult = await this.registry.execute(response.toolCall.tool, response.toolCall.args);
       if (toolResult.success) {
         this.conversationHistory.push({ role: "assistant", content: `Tool result: ${toolResult.result}` });
       } else {
         this.conversationHistory.push({ role: "assistant", content: `Tool error: ${toolResult.error}` });
       }
-      return { answer, thought, toolResult };
+      return { answer: "", thought: response.toolCall.thought, toolResult };
     }
 
-    return { answer, thought };
+    return { answer: response.message, thought: response.thought };
   }
 
-  private parseResponse(text: string): { thought: string; answer: string; toolCall?: { tool: string; args: any } } {
-    // Robust parsing for Thought Process and Tool Call
-    const thoughtMatch = text.match(/Thought Process:\s*([\s\S]*?)(\n\n|$)/i);
-    const thought = thoughtMatch ? thoughtMatch[1].trim() : "";
+  private async getValidatedResponse(): Promise<Exclude<ParsedResponse, { kind: "invalid" }>> {
+    let repairFeedback = "";
 
-    const jsonMatch = text.match(/\{[\s\S]*\}/);
-    let toolCall;
-    if (jsonMatch) {
-      try {
-        const parsed = JSON.parse(jsonMatch[0]);
-        if (parsed.tool) {
-          const { tool, ...args } = parsed;
-          toolCall = { tool, args };
-        }
-      } catch (e) {
-        // Silently fail if not valid tool JSON
+    for (let attempt = 0; attempt <= this.maxRepairAttempts; attempt++) {
+      const completion = await this.client.chat.completions.create({
+        model: this.model,
+        messages: this.buildMessages(repairFeedback),
+        temperature: 0.2,
+        max_completion_tokens: 2000,
+      });
+
+      const response = completion.choices[0]?.message?.content || "";
+      const parsed = parseModelResponse(response);
+
+      if (parsed.kind !== "invalid") {
+        return parsed;
       }
+
+      repairFeedback = [
+        "Your previous response was invalid.",
+        `Problem: ${parsed.reason}`,
+        "Previous response:",
+        response,
+        "Return a corrected response now.",
+        'If you need a tool, respond with one valid JSON object that includes "thought" and "tool".',
+        'If the task is complete, respond with one valid JSON object that includes "thought" and "message".',
+        "Do not output plain text outside JSON.",
+      ].join("\n");
     }
 
-    // The answer is whatever is left after the thought process and JSON
-    let answer = text
-      .replace(/Thought Process:\s*[\s\S]*?(\n\n|$)/i, "")
-      .replace(/\{[\s\S]*\}/, "")
-      .trim();
+    throw new Error("The model repeatedly returned invalid output and could not be repaired automatically.");
+  }
 
-    if (!answer && !toolCall) {
-      answer = text;
+  private buildMessages(repairFeedback?: string): Message[] {
+    const messages = [this.systemMessage, ...this.conversationHistory];
+
+    if (repairFeedback) {
+      messages.push({ role: "user", content: repairFeedback });
     }
 
-    return { thought, answer, toolCall };
+    return messages;
   }
 }
