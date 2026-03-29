@@ -65,6 +65,36 @@ export const fileTool = {
     return `Written to ${relativePath}`;
   },
 
+  replace: (relativePath: string, find: string, replaceWith: string, replaceAll = false, expectedCount?: number) => {
+    const fullPath = path.join(PROJECT_ROOT, relativePath);
+    if (!fullPath.startsWith(PROJECT_ROOT))
+      throw new Error("Access denied: outside project folder");
+    if (isRestricted(relativePath))
+      throw new Error("Access denied: restricted file");
+    if (!fs.existsSync(fullPath))
+      throw new Error("File does not exist");
+    if (typeof find !== "string" || find.length === 0)
+      throw new Error('The "find" value must be a non-empty string');
+
+    const currentContent = fs.readFileSync(fullPath, "utf-8");
+    const matchCount = currentContent.split(find).length - 1;
+
+    if (matchCount === 0)
+      throw new Error("Target text not found");
+    if (typeof expectedCount === "number" && matchCount !== expectedCount)
+      throw new Error(`Expected ${expectedCount} match(es) but found ${matchCount}`);
+
+    const nextContent = replaceAll
+      ? currentContent.split(find).join(replaceWith)
+      : currentContent.replace(find, replaceWith);
+
+    undoManager.createBackup(fullPath);
+    fs.writeFileSync(fullPath, nextContent, "utf-8");
+
+    const replacedCount = replaceAll ? matchCount : 1;
+    return `Replaced ${replacedCount} occurrence(s) in ${relativePath}`;
+  },
+
   mkdir: (relativePath: string) => {
     const fullPath = path.join(PROJECT_ROOT, relativePath);
     if (!fullPath.startsWith(PROJECT_ROOT))

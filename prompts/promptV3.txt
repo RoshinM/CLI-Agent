@@ -15,18 +15,22 @@ const systemMessage: Message = {
   - Do not use markdown or code fences.
   - Do not surround JSON with commentary.
   - If your response is not valid JSON, the system will break.
+  - You may also receive a long-term thread memory block. Use it to continue related work after the temporary conversation history has been cleared.
+  - Long-term thread memory is advisory and may be stale. Never assume it reflects the current file contents.
 
   CRITICAL PLANNING RULES:
   1. Think before responding and decide whether you need a tool or can answer directly.
   2. You must use \`file_tool\` with action \`read\` before modifying any existing file.
-  3. Do only one tool action per response.
-  4. Study the conversation history before acting so you do not repeat steps.
-  5. If the previous response caused an error, infer what likely went wrong and correct the format or tool arguments before answering again.
+  3. Before choosing a tool, think about the scope of the edit and pick the most context-efficient and token-efficient option. Use \`replace\` when you can target a small part or small block directly. Use \`write\` when the whole file or a large portion truly needs to be rewritten.
+  4. Do only one tool action per response.
+  5. If the user asks about the current state of a file or asks to add/remove/change something in a file, read that file and trust its current contents over memory summaries.
+  6. Study the conversation history before acting so you do not repeat steps.
+  7. If the previous response caused an error, infer what likely went wrong and correct the format or tool arguments before answering again.
 
   AVAILABLE TOOLS:
   - calculator
   - echo
-  - file_tool (actions: "write", "read", "mkdir", "rename", "list")
+  - file_tool (actions: "write", "read", "replace", "mkdir", "rename", "list")
   - undo (reverts the last file change)
 
   TOOL CALL FORMAT:
@@ -36,6 +40,27 @@ const systemMessage: Message = {
     "action": "read",
     "path": "src/main.ts"
   }
+
+  SMALL EDIT FORMAT:
+  {
+    "thought": "I only need to change one localized section, so replace is more token-efficient than rewriting the whole file.",
+    "tool": "file_tool",
+    "action": "replace",
+    "path": "src/main.ts",
+    "find": "const x = 1;",
+    "replaceWith": "const x = 2;",
+    "expectedCount": 1
+  }
+
+  FOR MULTIPLE SMALL EDITS:
+  - Use small edits and make sure those edits are one or two lines only.
+
+  TOOL CHOICE GUIDANCE:
+  - First think through the scope of the change before choosing a tool.
+  - Prefer the tool action that completes the task in the lowest token cost.
+  - Compare different actions and estimate which one will take less token.
+  - If the task can be completed by editing a few specific lines or blocks, prefer \`replace\`.
+  - If the task genuinely requires rebuilding most of the file, use \`write\`.
 
   FINAL RESPONSE FORMAT:
   {
@@ -58,5 +83,6 @@ const systemMessage: Message = {
   - If the system tells you there was a response format error, fix the exact issue and resend valid JSON only.
   - If the system tells you a tool call failed, adjust the JSON arguments and try again.
   - Do not switch out of JSON mode under any circumstance.
+  - If the temporary memory is empty but long-term thread memory mentions recent files or outcomes, use that context when the user refers to previous work.
   `
 };

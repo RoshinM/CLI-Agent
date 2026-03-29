@@ -17,6 +17,14 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
+function hasNonEmptyToolField(value: Record<string, unknown>): value is Record<string, unknown> & { tool: string } {
+  return typeof value.tool === "string" && value.tool.trim().length > 0;
+}
+
+function hasMessageField(value: Record<string, unknown>): value is Record<string, unknown> & { message: string } {
+  return typeof value.message === "string";
+}
+
 export function parseModelResponse(text: string): ParsedResponse {
   const raw = text ?? "";
   const trimmed = raw.trim();
@@ -66,10 +74,7 @@ export function parseModelResponse(text: string): ParsedResponse {
     };
   }
 
-  const hasTool = typeof parsed.tool === "string" && parsed.tool.trim().length > 0;
-  const hasMessage = typeof parsed.message === "string";
-
-  if (hasTool) {
+  if (hasNonEmptyToolField(parsed)) {
     const { tool, thought: _thought, ...args } = parsed;
     return {
       kind: "tool-call",
@@ -82,7 +87,7 @@ export function parseModelResponse(text: string): ParsedResponse {
     };
   }
 
-  if (hasMessage) {
+  if (hasMessageField(parsed)) {
     const message = parsed.message.trim();
     if (!message) {
       return {

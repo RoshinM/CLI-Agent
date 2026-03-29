@@ -1,6 +1,7 @@
 import { Groq } from "groq-sdk";
 import type { Message, ToolResult } from "../types/AgentTypes.ts";
 import { ToolRegistry } from "./ToolRegistry.ts";
+import { MemoryManager } from "./memoryManager.ts";
 import { parseModelResponse, type ParsedResponse } from "./responseParser.ts";
 
 export class Agent {
@@ -9,6 +10,7 @@ export class Agent {
   private model: string;
   private conversationHistory: Message[] = [];
   private systemMessage: Message;
+  private memoryManager: MemoryManager;
   private readonly maxRepairAttempts = 2;
 
   constructor(apiKey: string, registry: ToolRegistry, systemContent: string, model: string = "llama-3.3-70b-versatile") {
@@ -16,6 +18,7 @@ export class Agent {
     this.registry = registry;
     this.model = model;
     this.systemMessage = { role: "system", content: systemContent };
+    this.memoryManager = new MemoryManager();
   }
 
   getHistory(): Message[] {
@@ -28,8 +31,10 @@ export class Agent {
 
   async runStep(userInput: string): Promise<{ answer: string; thought: string; toolResult?: ToolResult }> {
     this.conversationHistory.push({ role: "user", content: userInput });
+    this.memoryManager.persistWorkingMemory(this.conversationHistory);
     const response = await this.getValidatedResponse();
     this.conversationHistory.push({ role: "assistant", content: response.raw });
+    this.memoryManager.persistWorkingMemory(this.conversationHistory);
 
     if (response.kind === "tool-call") {
       const toolResult = await this.registry.execute(response.toolCall.tool, response.toolCall.args);
@@ -38,8 +43,18 @@ export class Agent {
       } else {
         this.conversationHistory.push({ role: "assistant", content: `Tool error: ${toolResult.error}` });
       }
+      this.memoryManager.persistWorkingMemory(this.conversationHistory);
       return { answer: "", thought: response.toolCall.thought, toolResult };
     }
+
+    this.memoryManager.finalizeTask(
+      {
+        history: [...this.conversationHistory],
+        finalMessage: response.message,
+        finalThought: response.thought,
+      },
+      this.conversationHistory,
+    );
 
     return { answer: response.message, thought: response.thought };
   }
@@ -78,7 +93,11 @@ export class Agent {
   }
 
   private buildMessages(repairFeedback?: string): Message[] {
-    const messages = [this.systemMessage, ...this.conversationHistory];
+    const memoryContext: Message = {
+      role: "system",
+      content: `Long-term memory context:\n${this.memoryManager.buildPromptContext()}`,
+    };
+    const messages = [this.systemMessage, memoryContext, ...this.conversationHistory];
 
     if (repairFeedback) {
       messages.push({ role: "user", content: repairFeedback });

@@ -6,6 +6,7 @@ import { calculatorTool } from "../src/tools/calculatorTool.ts";
 import { systemInfoTool } from "../src/tools/systemInfoTool.ts";
 import { searchFilesTool } from "../src/tools/searchFilesTool.ts";
 import { undoTool } from "../src/tools/undoTool.ts";
+import { MemoryManager } from "../src/core/memoryManager.ts";
 import type { Message } from "../src/types/AgentTypes.ts";
 import { parseModelResponse } from "../src/core/responseParser.ts";
 
@@ -22,6 +23,7 @@ registry.register(searchFilesTool);
 registry.register(undoTool);
 
 const conversationHistory: Message[] = [];
+const memoryManager = new MemoryManager();
 
 function collectMultilineInput(cb: (text: string) => void) {
   const lines: string[] = [];
@@ -48,10 +50,13 @@ function generatePayload(history: Message[], errorContext?: string) {
   // Use strict JSON promptV3 + memory dump + end prompt
   const promptV3 = fs.readFileSync("prompts/promptV3.txt", "utf-8");
   const endPrompt = fs.readFileSync("prompts/endPrompt.txt", "utf-8");
+  const longTermMemory = memoryManager.buildPromptContext();
   
   const payload = [
     "=== SYSTEM PROMPT (V3) ===",
     promptV3,
+    "\n=== LONG-TERM THREAD MEMORY ===",
+    longTermMemory,
     "\n=== CONVERSATION HISTORY (MEMORY DUMP) ===",
     JSON.stringify(history, null, 2),
     errorContext ? `\n=== ERROR FEEDBACK ===\n${errorContext}` : "",
@@ -60,7 +65,7 @@ function generatePayload(history: Message[], errorContext?: string) {
   ].filter(Boolean).join("\n");
   
   fs.writeFileSync("mock_payload.txt", payload);
-  fs.writeFileSync("memory_dump.json", JSON.stringify(history, null, 2));
+  memoryManager.persistWorkingMemory(history);
 }
 
 const BLUE = "\x1b[94m";
@@ -80,6 +85,7 @@ export async function mockChatLoop() {
       }
 
       conversationHistory.push({ role: "user", content: userInput });
+      memoryManager.persistWorkingMemory(conversationHistory);
       await processAIResponse();
     });
   };
@@ -99,6 +105,7 @@ export async function mockChatLoop() {
       }
 
       conversationHistory.push({ role: "assistant", content: response });
+      memoryManager.persistWorkingMemory(conversationHistory);
       
       const parsed = parseModelResponse(response);
 
@@ -110,12 +117,14 @@ export async function mockChatLoop() {
           const resText = `Tool Result: ${result.result}`;
           console.log(`\n${BLUE}${resText}${RESET}`);
           conversationHistory.push({ role: "assistant", content: resText });
+          memoryManager.persistWorkingMemory(conversationHistory);
           return processAIResponse("Tool executed. Determine the next step.");
         }
 
         const errText = `Tool Error: ${result.error}`;
         console.log(`\n${RED}${errText}${RESET}`);
         conversationHistory.push({ role: "assistant", content: errText });
+        memoryManager.persistWorkingMemory(conversationHistory);
         return processAIResponse(`Error: ${result.error}. Fix the tool call arguments and try again.`);
       }
 
@@ -123,6 +132,15 @@ export async function mockChatLoop() {
         console.log(`\n${RED}Response Format Error: ${parsed.reason}${RESET}`);
         return processAIResponse(`Invalid response format: ${parsed.reason} Study the previous error, infer what went wrong, and return a corrected response.`);
       }
+
+      memoryManager.finalizeTask(
+        {
+          history: [...conversationHistory],
+          finalMessage: parsed.message,
+          finalThought: parsed.thought,
+        },
+        conversationHistory,
+      );
 
       console.log(`\n${BLUE}AI Response:${RESET}\n${parsed.message}`);
       return startInteraction();

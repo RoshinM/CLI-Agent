@@ -1,4 +1,8 @@
 .env
 node_modules
+/.backups/
+/context/*.json
+/memory_dump.json
+/mock_payload.txt
 
 gen-lang-client-0517240085-5d39dfde5721.json
