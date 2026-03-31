@@ -1,34 +1,30 @@
-
+// Import the readline module to read user input
 import readline from 'readline';
 
-// Creating readline interface to handle user input from console
+// Create an interface to read user input
 const rl = readline.createInterface({
     input: process.stdin,
     output: process.stdout
 });
 
-// Helper function to wrap rl.question in a Promise for async/await usage
+// Function to ask a question and get user input
 const askQuestion = (query: string): Promise<string> => {
     return new Promise((resolve) => rl.question(query, resolve));
 };
 
-// Main async function to execute user-selected operation
+// Main function to perform calculations
 (async () => {
     try {
-        // Prompting user to choose an operation
-        // add, subtract, multiply, divide require two numbers
-        // square, cube, sqrt, cbrt require one number
+        // Ask user to choose an operation
         const operation = await askQuestion('Choose operation (add, subtract, multiply, divide, square, cube, sqrt, cbrt): ');
 
         let num1: number, num2: number, result: number;
 
-        // Handle operations that require two numbers
+        // Perform operation based on user's choice
         if (['add', 'subtract', 'multiply', 'divide'].includes(operation)) {
-            // Prompting for the first and second numbers
             num1 = parseFloat(await askQuestion('Enter first number: '));
             num2 = parseFloat(await askQuestion('Enter second number: '));
 
-            // Performing the selected arithmetic operation
             switch (operation) {
                 case 'add':
                     result = num1 + num2;
@@ -48,13 +44,9 @@ const askQuestion = (query: string): Promise<string> => {
                 default:
                     throw new Error('Invalid operation');
             }
-        } 
-        // Handle operations that require a single number
-        else if (['square', 'cube', 'sqrt', 'cbrt'].includes(operation)) {
-            // Prompting for one number
+        } else if (['square', 'cube', 'sqrt', 'cbrt'].includes(operation)) {
             num1 = parseFloat(await askQuestion('Enter a number: '));
 
-            // Performing the selected single-number operation
             switch (operation) {
                 case 'square':
                     result = Math.pow(num1, 2);
@@ -72,17 +64,16 @@ const askQuestion = (query: string): Promise<string> => {
                     throw new Error('Invalid operation');
             }
         } else {
-            // Handle unsupported operations
             throw new Error('Unsupported operation');
         }
 
-        // Displaying the result to the user
+        // Display the result
         console.log(`Result: ${result}`);
     } catch (error: any) {
-        // Catching and displaying any errors that occur during input or calculation
+        // Handle any errors that occur
         console.error('An error occurred:', error.message);
     } finally {
-        // Closing the readline interface to end the program
+        // Close the readline interface
         rl.close();
     }
 })();

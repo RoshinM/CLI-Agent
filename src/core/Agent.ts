@@ -26,6 +26,7 @@ export class Agent {
   private readonly maxRepairAttempts = 2;
   private readonly maxStepsPerRun = 6;
   private readonly debugPayloadPath = "mock_payload.txt";
+  private readonly requestTimeoutMs = 45000;
   private approvalHandler?: ApprovalHandler;
   private callbacks?: AgentCallbacks;
 
@@ -215,12 +216,15 @@ export class Agent {
     for (let attempt = 0; attempt < attemptsForThisCall; attempt++) {
       this.callbacks?.onModelStart?.();
       try {
-        return await this.client.chat.completions.create({
-          model: this.model,
-          messages,
-          temperature: 0.2,
-          max_completion_tokens: 2000,
-        });
+        return await Promise.race([
+          this.client.chat.completions.create({
+            model: this.model,
+            messages,
+            temperature: 0.2,
+            max_completion_tokens: 2000,
+          }),
+          this.createTimeoutPromise(),
+        ]);
       } catch (error) {
         lastError = error;
         if (!this.isRateLimitError(error) || this.apiKeys.length === 1) {
@@ -261,5 +265,13 @@ export class Agent {
         : "";
 
     return message.includes("rate limit") || message.includes("too many requests") || message.includes("429");
+  }
+
+  private createTimeoutPromise(): Promise<never> {
+    return new Promise((_, reject) => {
+      setTimeout(() => {
+        reject(new Error(`Model request timed out after ${this.requestTimeoutMs / 1000} seconds.`));
+      }, this.requestTimeoutMs);
+    });
   }
 }

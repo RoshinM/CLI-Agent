@@ -1,4 +1,3 @@
-import readline from "readline";
 import fs from "fs";
 import { ToolRegistry } from "../src/core/ToolRegistry.ts";
 import { fileTools } from "../src/tools/fileTools.ts";
@@ -10,11 +9,17 @@ import { shellTool } from "../src/tools/shellTool.ts";
 import { MemoryManager } from "../src/core/memoryManager.ts";
 import type { Message } from "../src/types/AgentTypes.ts";
 import { parseModelResponse } from "../src/core/responseParser.ts";
-
-const rl = readline.createInterface({
-  input: process.stdin,
-  output: process.stdout,
-});
+import {
+  COLORS,
+  SpinnerController,
+  printBanner,
+  printDivider,
+  printSection,
+  promptConfirm,
+  promptMultiline,
+  promptText,
+  previewText,
+} from "../src/cli/terminalUi.ts";
 
 const registry = new ToolRegistry();
 fileTools.forEach(t => registry.register(t));
@@ -26,35 +31,11 @@ registry.register(shellTool);
 
 const conversationHistory: Message[] = [];
 const memoryManager = new MemoryManager();
-
-function collectMultilineInput(cb: (text: string) => void) {
-  const lines: string[] = [];
-  let lastWasEmpty = false;
-  const onLine = (line: string) => {
-    if (line.trim() === "") {
-      if (lastWasEmpty) {
-        rl.removeListener("line", onLine);
-        lines.pop(); 
-        cb(lines.join("\n"));
-      } else {
-        lastWasEmpty = true;
-        lines.push(line);
-      }
-    } else {
-      lastWasEmpty = false;
-      lines.push(line);
-    }
-  };
-  rl.on("line", onLine);
-}
+const loading = new SpinnerController();
 
 function askForApproval(question: string): Promise<boolean> {
-  return new Promise((resolve) => {
-    rl.question(`${YELLOW}${question} (y/n): ${RESET}`, (answer) => {
-      const normalized = answer.trim().toLowerCase();
-      resolve(normalized === "y" || normalized === "yes");
-    });
-  });
+  loading.stop();
+  return promptConfirm(question);
 }
 
 function needsConfirmation(requiresConfirmation: boolean | ((args: any) => boolean) | undefined, args: any): boolean {
@@ -87,113 +68,110 @@ function generatePayload(history: Message[], errorContext?: string) {
   memoryManager.persistWorkingMemory(history);
 }
 
-const BLUE = "\x1b[94m";
-const YELLOW = "\x1b[33m";
-const RED = "\x1b[31m";
-const RESET = "\x1b[0m";
-
 export async function mockChatLoop() {
-  console.log("=== Simplified Mock CLI Agent (JSON Mode) ===");
-  console.log("Type 'exit' to quit\n");
+  printBanner("Mock Agent", "Zero-token testing mode. Type 'exit' to quit.");
 
   const startInteraction = async () => {
-    rl.question("\nYou: ", async (userInput) => {
-      if (userInput.toLowerCase() === "exit") {
-        rl.close();
-        return;
-      }
+    const userInput = await promptText("You");
+    if (userInput.toLowerCase() === "exit") {
+      return;
+    }
 
-      conversationHistory.push({ role: "user", content: userInput });
-      memoryManager.persistWorkingMemory(conversationHistory);
-      await processAIResponse();
-    });
+    conversationHistory.push({ role: "user", content: userInput });
+    memoryManager.persistWorkingMemory(conversationHistory);
+    await processAIResponse();
   };
 
   const processAIResponse = async (context?: string) => {
+    loading.start("Preparing payload...");
     generatePayload(conversationHistory, context);
+    loading.success("Payload updated.");
 
-    console.log(`\n${BLUE}--- Action Required ---${RESET}`);
-    console.log(`1. Copy payload from ${YELLOW}mock_payload.txt${RESET}`);
-    console.log(`2. Paste to LLM (JSON Mode Active)`);
-    console.log(`3. Paste LLM's response below and press Enter twice:`);
+    printSection("Mock Mode", "Copy mock_payload.txt into your LLM, then paste the JSON response back here.", COLORS.cyan);
+    printSection("Payload", "mock_payload.txt", COLORS.yellow);
+    const response = await promptMultiline("Paste the model response");
+    if (!response.trim()) {
+      printSection("Warning", "Empty response. Interaction reset.", COLORS.yellow);
+      return startInteraction();
+    }
 
-    collectMultilineInput(async (response) => {
-      if (!response.trim()) {
-        console.log(`${YELLOW}Empty response. Interaction reset.${RESET}`);
-        return startInteraction();
-      }
+    loading.start("Processing response...");
+    conversationHistory.push({ role: "assistant", content: response });
+    memoryManager.persistWorkingMemory(conversationHistory);
+    
+    const parsed = parseModelResponse(response);
+    loading.stop();
 
-      conversationHistory.push({ role: "assistant", content: response });
-      memoryManager.persistWorkingMemory(conversationHistory);
-      
-      const parsed = parseModelResponse(response);
-
-      if (parsed.kind === "tool-call") {
-        const tool = registry.getTool(parsed.toolCall.tool);
-        if (!tool) {
-          const errText = `Tool Error: Tool '${parsed.toolCall.tool}' not found.`;
-          console.log(`\n${RED}${errText}${RESET}`);
-          conversationHistory.push({ role: "assistant", content: errText });
-          memoryManager.persistWorkingMemory(conversationHistory);
-          return processAIResponse(`Error: ${errText}. Choose a valid tool and try again.`);
-        }
-
-        if (needsConfirmation(tool.requiresConfirmation, parsed.toolCall.args)) {
-          const confirmationText =
-            typeof tool.confirmationMessage === "function"
-              ? tool.confirmationMessage(parsed.toolCall.args)
-              : tool.confirmationMessage ?? `Allow ${tool.name} to run?`;
-          const approved = await askForApproval(confirmationText);
-
-          if (!approved) {
-            const errText = `Tool Error: User denied approval for '${tool.name}'.`;
-            console.log(`\n${RED}${errText}${RESET}`);
-            conversationHistory.push({ role: "assistant", content: errText });
-            memoryManager.persistWorkingMemory(conversationHistory);
-            return processAIResponse(
-              "The user denied the requested action. Choose a safer alternative or explain why approval is needed.",
-            );
-          }
-        }
-
-        console.log(`\n${YELLOW}Executing tool: ${parsed.toolCall.tool}...${RESET}`);
-        const result = await registry.execute(parsed.toolCall.tool, parsed.toolCall.args);
-
-        if (result.success) {
-          const resText = `Tool Result: ${result.result}`;
-          console.log(`\n${BLUE}${resText}${RESET}`);
-          conversationHistory.push({ role: "assistant", content: resText });
-          memoryManager.persistWorkingMemory(conversationHistory);
-          return processAIResponse(
-            "A tool returned successfully. If the user asked for information, present the relevant result in your final message instead of stopping at the tool call. For directory or project-structure requests, format the final answer as an indented bullet tree with / after directory names. If more work is still needed, choose the next tool.",
-          );
-        }
-
-        const errText = `Tool Error: ${result.error}`;
-        console.log(`\n${RED}${errText}${RESET}`);
+    if (parsed.kind === "tool-call") {
+      const tool = registry.getTool(parsed.toolCall.tool);
+      if (!tool) {
+        const errText = `Tool Error: Tool '${parsed.toolCall.tool}' not found.`;
+        printSection("Tool Error", errText, COLORS.red);
         conversationHistory.push({ role: "assistant", content: errText });
         memoryManager.persistWorkingMemory(conversationHistory);
-        return processAIResponse(`Error: ${result.error}. Fix the tool call arguments and try again.`);
+        return processAIResponse(`Error: ${errText}. Choose a valid tool and try again.`);
       }
 
-      if (parsed.kind === "invalid") {
-        console.log(`\n${RED}Response Format Error: ${parsed.reason}${RESET}`);
-        return processAIResponse(`Invalid response format: ${parsed.reason} Study the previous error, infer what went wrong, and return a corrected response.`);
+      if (needsConfirmation(tool.requiresConfirmation, parsed.toolCall.args)) {
+        const confirmationText =
+          typeof tool.confirmationMessage === "function"
+            ? tool.confirmationMessage(parsed.toolCall.args)
+            : tool.confirmationMessage ?? `Allow ${tool.name} to run?`;
+        const approved = await askForApproval(confirmationText);
+
+        if (!approved) {
+          const errText = `Tool Error: User denied approval for '${tool.name}'.`;
+          printSection("Tool Error", errText, COLORS.red);
+          conversationHistory.push({ role: "assistant", content: errText });
+          memoryManager.persistWorkingMemory(conversationHistory);
+          return processAIResponse(
+            "The user denied the requested action. Choose a safer alternative or explain why approval is needed.",
+          );
+        }
       }
 
-      memoryManager.finalizeTask(
-        {
-          history: [...conversationHistory],
-          finalMessage: parsed.message,
-          finalThought: parsed.thought,
-        },
-        conversationHistory,
-      );
+      printSection("Tool", `Using ${parsed.toolCall.tool}`, COLORS.dim);
+      loading.start(`Executing ${parsed.toolCall.tool}...`);
+      const result = await registry.execute(parsed.toolCall.tool, parsed.toolCall.args);
+      loading.stop();
 
-      console.log(`\n${BLUE}AI Response:${RESET}\n${parsed.message}`);
-      return startInteraction();
-    });
+      if (result.success) {
+        const resText = `Tool Result: ${result.result}`;
+        printSection("Tool Result", `${parsed.toolCall.tool} -> ${previewText(result.result)}`, COLORS.green);
+        conversationHistory.push({ role: "assistant", content: resText });
+        memoryManager.persistWorkingMemory(conversationHistory);
+        return processAIResponse(
+          "A tool returned successfully. If the user asked for information, present the relevant result in your final message instead of stopping at the tool call. For directory or project-structure requests, format the final answer as an indented bullet tree with / after directory names. If more work is still needed, choose the next tool.",
+        );
+      }
+
+      const errText = `Tool Error: ${result.error}`;
+      printSection("Tool Error", `${parsed.toolCall.tool} -> ${result.error ?? "Unknown tool error"}`, COLORS.red);
+      conversationHistory.push({ role: "assistant", content: errText });
+      memoryManager.persistWorkingMemory(conversationHistory);
+      return processAIResponse(`Error: ${result.error}. Fix the tool call arguments and try again.`);
+    }
+
+    if (parsed.kind === "invalid") {
+      printSection("Response Error", parsed.reason, COLORS.red);
+      return processAIResponse(`Invalid response format: ${parsed.reason} Study the previous error, infer what went wrong, and return a corrected response.`);
+    }
+
+    memoryManager.finalizeTask(
+      {
+        history: [...conversationHistory],
+        finalMessage: parsed.message,
+        finalThought: parsed.thought,
+      },
+      conversationHistory,
+    );
+
+    printSection("Thought", parsed.thought, COLORS.blue, true);
+    printSection("Answer", parsed.message, COLORS.magenta);
+    printDivider();
+    console.log();
+    return startInteraction();
   };
 
-  startInteraction();
+  await startInteraction();
 }
