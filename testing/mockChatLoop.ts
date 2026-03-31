@@ -6,6 +6,7 @@ import { calculatorTool } from "../src/tools/calculatorTool.ts";
 import { systemInfoTool } from "../src/tools/systemInfoTool.ts";
 import { searchFilesTool } from "../src/tools/searchFilesTool.ts";
 import { undoTool } from "../src/tools/undoTool.ts";
+import { shellTool } from "../src/tools/shellTool.ts";
 import { MemoryManager } from "../src/core/memoryManager.ts";
 import type { Message } from "../src/types/AgentTypes.ts";
 import { parseModelResponse } from "../src/core/responseParser.ts";
@@ -21,6 +22,7 @@ registry.register(calculatorTool);
 registry.register(systemInfoTool);
 registry.register(searchFilesTool);
 registry.register(undoTool);
+registry.register(shellTool);
 
 const conversationHistory: Message[] = [];
 const memoryManager = new MemoryManager();
@@ -44,6 +46,15 @@ function collectMultilineInput(cb: (text: string) => void) {
     }
   };
   rl.on("line", onLine);
+}
+
+function askForApproval(question: string): Promise<boolean> {
+  return new Promise((resolve) => {
+    rl.question(`${YELLOW}${question} (y/n): ${RESET}`, (answer) => {
+      const normalized = answer.trim().toLowerCase();
+      resolve(normalized === "y" || normalized === "yes");
+    });
+  });
 }
 
 function generatePayload(history: Message[], errorContext?: string) {
@@ -110,6 +121,33 @@ export async function mockChatLoop() {
       const parsed = parseModelResponse(response);
 
       if (parsed.kind === "tool-call") {
+        const tool = registry.getTool(parsed.toolCall.tool);
+        if (!tool) {
+          const errText = `Tool Error: Tool '${parsed.toolCall.tool}' not found.`;
+          console.log(`\n${RED}${errText}${RESET}`);
+          conversationHistory.push({ role: "assistant", content: errText });
+          memoryManager.persistWorkingMemory(conversationHistory);
+          return processAIResponse(`Error: ${errText}. Choose a valid tool and try again.`);
+        }
+
+        if (tool.requiresConfirmation) {
+          const confirmationText =
+            typeof tool.confirmationMessage === "function"
+              ? tool.confirmationMessage(parsed.toolCall.args)
+              : tool.confirmationMessage ?? `Allow ${tool.name} to run?`;
+          const approved = await askForApproval(confirmationText);
+
+          if (!approved) {
+            const errText = `Tool Error: User denied approval for '${tool.name}'.`;
+            console.log(`\n${RED}${errText}${RESET}`);
+            conversationHistory.push({ role: "assistant", content: errText });
+            memoryManager.persistWorkingMemory(conversationHistory);
+            return processAIResponse(
+              "The user denied the requested action. Choose a safer alternative or explain why approval is needed.",
+            );
+          }
+        }
+
         console.log(`\n${YELLOW}Executing tool: ${parsed.toolCall.tool}...${RESET}`);
         const result = await registry.execute(parsed.toolCall.tool, parsed.toolCall.args);
 
@@ -118,7 +156,9 @@ export async function mockChatLoop() {
           console.log(`\n${BLUE}${resText}${RESET}`);
           conversationHistory.push({ role: "assistant", content: resText });
           memoryManager.persistWorkingMemory(conversationHistory);
-          return processAIResponse("Tool executed. Determine the next step.");
+          return processAIResponse(
+            "A tool returned successfully. If the user asked for information, present the relevant result in your final message instead of stopping at the tool call. For directory or project-structure requests, format the final answer as an indented bullet tree with / after directory names. If more work is still needed, choose the next tool.",
+          );
         }
 
         const errText = `Tool Error: ${result.error}`;

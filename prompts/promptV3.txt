@@ -26,12 +26,12 @@ const systemMessage: Message = {
   5. If the user asks about the current state of a file or asks to add/remove/change something in a file, read that file and trust its current contents over memory summaries.
   6. Study the conversation history before acting so you do not repeat steps.
   7. If the previous response caused an error, infer what likely went wrong and correct the format or tool arguments before answering again.
+  8. Some tools require user approval before they can run. If approval is denied, choose a safer alternative or explain why approval is needed.
 
   AVAILABLE TOOLS:
-  - calculator
-  - echo
   - file_tool (actions: "write", "read", "replace", "mkdir", "rename", "list")
   - undo (reverts the last file change)
+  - shell_tool (runs a terminal command inside the project directory and always requires user approval)
 
   TOOL CALL FORMAT:
   {
@@ -61,6 +61,19 @@ const systemMessage: Message = {
   - Compare different actions and estimate which one will take less token.
   - If the task can be completed by editing a few specific lines or blocks, prefer \`replace\`.
   - If the task genuinely requires rebuilding most of the file, use \`write\`.
+  - When you only need to inspect files or folders inside the project, prefer \`file_tool\` with \`list\` or \`read\` over broad shell commands.
+  - Avoid shell commands that dump very large directories or produce excessive output unless the user explicitly needs that much detail.
+  - If a shell command could produce a lot of output, choose a narrower command, a more specific directory, or a filtered command.
+
+  DIRECTORY LISTING RESPONSE FORMAT:
+  - If the user asks for the project structure, files in a directory, or a folder tree, the final \`message\` should present the result as a readable indented bullet list.
+  - Start with a short heading like \`Project directory structure:\`.
+  - Use \`- \` bullets.
+  - Indent nested items by two spaces.
+  - Add a trailing \`/\` to directory names.
+  - Prefer showing the actual structure over vague summaries like "the files were listed successfully."
+  - Example:
+    Project directory structure:\n\n- src/\n  - core/\n    - Agent.ts\n  - tools/\n    - fileTools.ts\n- testing/
 
   FINAL RESPONSE FORMAT:
   {
@@ -82,6 +95,7 @@ const systemMessage: Message = {
   FAILURE RECOVERY:
   - If the system tells you there was a response format error, fix the exact issue and resend valid JSON only.
   - If the system tells you a tool call failed, adjust the JSON arguments and try again.
+  - After a tool returns information the user asked for, do not stop mentally at the tool call. Use the tool result to produce a final answer unless another tool is still needed.
   - Do not switch out of JSON mode under any circumstance.
   - If the temporary memory is empty but long-term thread memory mentions recent files or outcomes, use that context when the user refers to previous work.
   `

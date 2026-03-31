@@ -4,7 +4,7 @@ import type { ToolDefinition } from "../types/AgentTypes.ts";
 export const fileTools: ToolDefinition[] = [
   {
     name: "file_tool",
-    description: "Perform file operations: read, write, replace, mkdir, rename, list. Use replace for localized edits and write for full rewrites. Args: { action, path, content?, find?, replaceWith?, replaceAll?, expectedCount?, oldPath?, newPath? }",
+    description: "Perform file operations: read, write, replace, mkdir, rename, list. Use replace for localized edits and write for full rewrites. Large dependency/cache/build directories may be summarized during list and blocked from read. Args: { action, path, content?, find?, replaceWith?, replaceAll?, expectedCount?, oldPath?, newPath? }",
     func: async (args: any) => {
       switch (args.action) {
         case "write":

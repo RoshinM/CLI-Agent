@@ -11,6 +11,8 @@ export interface ToolDefinition {
   description: string;
   func: ToolFunc;
   parameters?: any;
+  requiresConfirmation?: boolean;
+  confirmationMessage?: string | ((args: any) => string);
 }
 
 export interface Message {
