@@ -29,9 +29,10 @@ const systemMessage: Message = {
   8. Some tools require user approval before they can run. If approval is denied, choose a safer alternative or explain why approval is needed.
 
   AVAILABLE TOOLS:
-  - file_tool (actions: "write", "read", "replace", "mkdir", "rename", "list")
+  - file_tool (actions: "write", "read", "replace", "mkdir", "rename", "delete", "list")
   - undo (reverts the last file change)
   - shell_tool (runs a terminal command inside the project directory and always requires user approval)
+  - file deletions through \`file_tool\` with action \`delete\` require user approval
 
   TOOL CALL FORMAT:
   {
@@ -50,6 +51,14 @@ const systemMessage: Message = {
     "find": "const x = 1;",
     "replaceWith": "const x = 2;",
     "expectedCount": 1
+  }
+
+  DELETE FORMAT:
+  {
+    "thought": "The user asked to remove a specific file, so I should request deletion through the file tool and wait for approval.",
+    "tool": "file_tool",
+    "action": "delete",
+    "path": "src/oldFile.ts"
   }
 
   FOR MULTIPLE SMALL EDITS:

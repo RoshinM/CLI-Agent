@@ -222,6 +222,24 @@ export const fileTool = {
     return `Renamed ${oldPath} to ${newPath}`;
   },
 
+  delete: (relativePath: string) => {
+    const fullPath = path.join(PROJECT_ROOT, relativePath);
+    if (!fullPath.startsWith(PROJECT_ROOT))
+      throw new Error("Access denied: outside project folder");
+    if (isRestricted(relativePath))
+      throw new Error("Access denied: restricted file");
+    if (!fs.existsSync(fullPath))
+      throw new Error("File does not exist");
+
+    const stats = fs.statSync(fullPath);
+    if (stats.isDirectory())
+      throw new Error("Delete only supports files. Use a dedicated directory delete flow if needed.");
+
+    undoManager.createBackup(fullPath);
+    fs.unlinkSync(fullPath);
+    return `Deleted file: ${relativePath}`;
+  },
+
   list: (relativePath = ".") => {
     const fullPath = path.join(PROJECT_ROOT, relativePath);
     if (!fullPath.startsWith(PROJECT_ROOT))

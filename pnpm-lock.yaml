@@ -17,6 +17,9 @@ importers:
       '@langchain/groq':
         specifier: ^0.2.4
         version: 0.2.4(@langchain/core@0.3.77(openai@5.21.0(zod@3.25.76)))
+      '@openrouter/sdk':
+        specifier: ^0.1.27
+        version: 0.1.27
       axios:
         specifier: ^1.12.2
         version: 1.12.2
@@ -90,6 +93,9 @@ packages:
     engines: {node: '>=18'}
     peerDependencies:
       '@langchain/core': '>=0.2.21 <0.4.0'
+
+  '@openrouter/sdk@0.1.27':
+    resolution: {integrity: sha512-RH//L10bSmc81q25zAZudiI4kNkLgxF2E+WU42vghp3N6TEvZ6F0jK7uT3tOxkEn91gzmMw9YVmDENy7SJsajQ==}
 
   '@protobufjs/aspromise@1.1.2':
     resolution: {integrity: sha512-j+gKExEuLmKwvz3OgROXtrJ2UG2x8Ch2YZUxahh+s1F2HZ+wAceUNLkvy6zKCPVRkU++ZWQrdxsUeQXmcg4uoQ==}
@@ -821,6 +827,10 @@ snapshots:
     dependencies:
       '@langchain/core': 0.3.77(openai@5.21.0(zod@3.25.76))
       js-tiktoken: 1.0.21
+
+  '@openrouter/sdk@0.1.27':
+    dependencies:
+      zod: 3.25.76
 
   '@protobufjs/aspromise@1.1.2': {}
 

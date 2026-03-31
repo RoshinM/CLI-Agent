@@ -1,3 +1,4 @@
+import fs from "fs";
 import { Groq } from "groq-sdk";
 import type { Message, ToolResult } from "../types/AgentTypes.ts";
 import { ToolRegistry } from "./ToolRegistry.ts";
@@ -5,9 +6,18 @@ import { MemoryManager } from "./memoryManager.ts";
 import { parseModelResponse, type ParsedResponse } from "./responseParser.ts";
 
 type ApprovalHandler = (toolName: string, args: Record<string, unknown>) => Promise<boolean>;
+type AgentCallbacks = {
+  onModelStart?: () => void;
+  onModelComplete?: () => void;
+  onToolStart?: (toolName: string, args: Record<string, unknown>) => void;
+  onToolResult?: (toolName: string, result: ToolResult) => void;
+  onApiKeySwitch?: (nextIndex: number, totalKeys: number) => void;
+};
 
 export class Agent {
   private client: Groq;
+  private apiKeys: string[];
+  private activeApiKeyIndex: number;
   private registry: ToolRegistry;
   private model: string;
   private conversationHistory: Message[] = [];
@@ -15,21 +25,30 @@ export class Agent {
   private memoryManager: MemoryManager;
   private readonly maxRepairAttempts = 2;
   private readonly maxStepsPerRun = 6;
+  private readonly debugPayloadPath = "mock_payload.txt";
   private approvalHandler?: ApprovalHandler;
+  private callbacks?: AgentCallbacks;
 
   constructor(
-    apiKey: string,
+    apiKey: string | string[],
     registry: ToolRegistry,
     systemContent: string,
     model: string = "llama-3.3-70b-versatile",
     approvalHandler?: ApprovalHandler,
+    callbacks?: AgentCallbacks,
   ) {
-    this.client = new Groq({ apiKey });
+    this.apiKeys = Array.isArray(apiKey) ? apiKey.filter(Boolean) : [apiKey];
+    if (this.apiKeys.length === 0) {
+      throw new Error("At least one API key is required.");
+    }
+    this.activeApiKeyIndex = 0;
+    this.client = new Groq({ apiKey: this.apiKeys[this.activeApiKeyIndex] });
     this.registry = registry;
     this.model = model;
     this.systemMessage = { role: "system", content: systemContent };
     this.memoryManager = new MemoryManager();
     this.approvalHandler = approvalHandler;
+    this.callbacks = callbacks;
   }
 
   getHistory(): Message[] {
@@ -73,7 +92,7 @@ export class Agent {
         continue;
       }
 
-      if (tool.requiresConfirmation && this.approvalHandler) {
+      if (this.needsConfirmation(tool.requiresConfirmation, response.toolCall.args) && this.approvalHandler) {
         const approved = await this.approvalHandler(response.toolCall.tool, response.toolCall.args);
         if (!approved) {
           lastToolResult = {
@@ -88,7 +107,9 @@ export class Agent {
         }
       }
 
+      this.callbacks?.onToolStart?.(response.toolCall.tool, response.toolCall.args);
       lastToolResult = await this.registry.execute(response.toolCall.tool, response.toolCall.args);
+      this.callbacks?.onToolResult?.(response.toolCall.tool, lastToolResult);
       if (lastToolResult.success) {
         this.conversationHistory.push({ role: "assistant", content: `Tool result: ${lastToolResult.result}` });
         continuationContext =
@@ -107,12 +128,9 @@ export class Agent {
     let repairFeedback = "";
 
     for (let attempt = 0; attempt <= this.maxRepairAttempts; attempt++) {
-      const completion = await this.client.chat.completions.create({
-        model: this.model,
-        messages: this.buildMessages(repairFeedback, extraContext),
-        temperature: 0.2,
-        max_completion_tokens: 2000,
-      });
+      const messages = this.buildMessages(repairFeedback, extraContext);
+      this.persistDebugPayload(extraContext, repairFeedback);
+      const completion = await this.createCompletionWithFailover(messages);
 
       const response = completion.choices[0]?.message?.content || "";
       const parsed = parseModelResponse(response);
@@ -152,5 +170,96 @@ export class Agent {
     }
 
     return messages;
+  }
+
+  private persistDebugPayload(extraContext?: string, repairFeedback?: string) {
+    let endPrompt = 'NOTE: You must respond in JSON every single time or the system will break.';
+
+    try {
+      endPrompt = fs.readFileSync("prompts/endPrompt.txt", "utf-8");
+    } catch {
+      // Keep fallback end prompt when the file is unavailable.
+    }
+
+    const payload = [
+      "=== SYSTEM PROMPT (API) ===",
+      this.systemMessage.content,
+      "\n=== LONG-TERM THREAD MEMORY ===",
+      this.memoryManager.buildPromptContext(),
+      "\n=== CONVERSATION HISTORY (MEMORY DUMP) ===",
+      JSON.stringify(this.conversationHistory, null, 2),
+      extraContext ? `\n=== CONTINUATION CONTEXT ===\n${extraContext}` : "",
+      repairFeedback ? `\n=== ERROR FEEDBACK ===\n${repairFeedback}` : "",
+      "\n=== END INSTRUCTION ===",
+      endPrompt,
+    ].filter(Boolean).join("\n");
+
+    fs.writeFileSync(this.debugPayloadPath, payload);
+  }
+
+  private needsConfirmation(
+    requiresConfirmation: boolean | ((args: Record<string, unknown>) => boolean) | undefined,
+    args: Record<string, unknown>,
+  ): boolean {
+    if (typeof requiresConfirmation === "function") {
+      return requiresConfirmation(args);
+    }
+
+    return Boolean(requiresConfirmation);
+  }
+
+  private async createCompletionWithFailover(messages: Message[]) {
+    const attemptsForThisCall = Math.max(this.apiKeys.length, 1);
+    let lastError: unknown;
+
+    for (let attempt = 0; attempt < attemptsForThisCall; attempt++) {
+      this.callbacks?.onModelStart?.();
+      try {
+        return await this.client.chat.completions.create({
+          model: this.model,
+          messages,
+          temperature: 0.2,
+          max_completion_tokens: 2000,
+        });
+      } catch (error) {
+        lastError = error;
+        if (!this.isRateLimitError(error) || this.apiKeys.length === 1) {
+          throw error;
+        }
+
+        this.rotateApiKey();
+        continue;
+      } finally {
+        this.callbacks?.onModelComplete?.();
+      }
+    }
+
+    throw lastError instanceof Error
+      ? lastError
+      : new Error("All configured API keys hit rate limits for this request.");
+  }
+
+  private rotateApiKey() {
+    this.activeApiKeyIndex = (this.activeApiKeyIndex + 1) % this.apiKeys.length;
+    this.client = new Groq({ apiKey: this.apiKeys[this.activeApiKeyIndex] });
+    this.callbacks?.onApiKeySwitch?.(this.activeApiKeyIndex, this.apiKeys.length);
+  }
+
+  private isRateLimitError(error: unknown): boolean {
+    if (!error || typeof error !== "object") {
+      return false;
+    }
+
+    const status = "status" in error ? (error as { status?: unknown }).status : undefined;
+    if (status === 429) {
+      return true;
+    }
+
+    const message =
+      "message" in error && typeof (error as { message?: unknown }).message === "string"
+        ? (error as { message: string }).message.toLowerCase()
+        : "";
+
+    return message.includes("rate limit") || message.includes("too many requests") || message.includes("429");
   }
 }

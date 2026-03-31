@@ -57,6 +57,14 @@ function askForApproval(question: string): Promise<boolean> {
   });
 }
 
+function needsConfirmation(requiresConfirmation: boolean | ((args: any) => boolean) | undefined, args: any): boolean {
+  if (typeof requiresConfirmation === "function") {
+    return requiresConfirmation(args);
+  }
+
+  return Boolean(requiresConfirmation);
+}
+
 function generatePayload(history: Message[], errorContext?: string) {
   // Use strict JSON promptV3 + memory dump + end prompt
   const promptV3 = fs.readFileSync("prompts/promptV3.txt", "utf-8");
@@ -130,7 +138,7 @@ export async function mockChatLoop() {
           return processAIResponse(`Error: ${errText}. Choose a valid tool and try again.`);
         }
 
-        if (tool.requiresConfirmation) {
+        if (needsConfirmation(tool.requiresConfirmation, parsed.toolCall.args)) {
           const confirmationText =
             typeof tool.confirmationMessage === "function"
               ? tool.confirmationMessage(parsed.toolCall.args)

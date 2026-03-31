@@ -23,15 +23,16 @@ Tool Call Format:
 Tool Mode Rules:
 - Return only a single valid JSON object.
 - Include "thought", "tool", and the tool arguments as top-level fields.
-- Prefer `file_tool` with `action: "replace"` when a few specific lines or blocks can be updated directly.
-- Use `write` when the whole file or a large portion genuinely needs to be rewritten.
-- If a `replace` payload would include most of the file anyway, it is not meaningfully more efficient than `write`.
+- Prefer \`file_tool\` with \`action: "replace"\` when a few specific lines or blocks can be updated directly.
+- Use \`write\` when the whole file or a large portion genuinely needs to be rewritten.
+- If a \`replace\` payload would include most of the file anyway, it is not meaningfully more efficient than \`write\`.
 - For requests like adding comments or making several small tweaks, think through whether a few targeted edits are more efficient than rewriting the file.
-- Example judgment: a few isolated edits or comments -> repeated small `replace`; payload is basically the whole file -> `write`.
-- If `shell_tool` is needed, propose the exact command in JSON and wait for user approval through the tool flow.
-- Prefer `file_tool` with `action: "list"` or `action: "read"` when inspecting the project tree or file contents instead of broad shell directory dumps.
+- Example judgment: a few isolated edits or comments -> repeated small \`replace\`; payload is basically the whole file -> \`write\`.
+- If \`shell_tool\` is needed, propose the exact command in JSON and wait for user approval through the tool flow.
+- File deletion is available through \`file_tool\` with \`action: "delete"\`, and it requires user approval before execution.
+- Prefer \`file_tool\` with \`action: "list"\` or \`action: "read"\` when inspecting the project tree or file contents instead of broad shell directory dumps.
 - Avoid shell commands that are likely to produce huge output. If you only need part of the information, use a narrower command or a project file tool instead.
-- When answering with a directory listing or project structure, format the final message as a readable indented bullet tree. Start with a short heading such as `Project directory structure:`, use `- ` bullets, indent nested items by two spaces, and add `/` to directory names.
+- When answering with a directory listing or project structure, format the final message as a readable indented bullet tree. Start with a short heading such as \`Project directory structure:\`, use \`- \` bullets, indent nested items by two spaces, and add \`/\` to directory names.
 - Do not add markdown, code fences, prose, or trailing text.
 
 Final-Answer Mode Rules:
