@@ -1,13 +1,18 @@
 import fs from "fs";
 import path from "path";
 import type { ToolDefinition } from "../types/AgentTypes.ts";
+import { getWorkspaceRoot, isWithinWorkspace, toWorkspaceRelativePath } from "../core/workspace.ts";
 
 export const searchFilesTool: ToolDefinition = {
   name: "search_files",
   description: "Search for a pattern in files within the project. Args: { pattern, directory? }",
   func: async (args: any) => {
     const pattern = new RegExp(args.pattern, "i");
-    const directory = path.join(process.cwd(), args.directory || ".");
+    const workspaceRoot = getWorkspaceRoot();
+    const directory = path.resolve(workspaceRoot, args.directory || ".");
+    if (!isWithinWorkspace(directory)) {
+      return "Error: directory is outside the workspace.";
+    }
     
     function searchRecursive(dir: string): string[] {
       const matches: string[] = [];
@@ -22,7 +27,7 @@ export const searchFilesTool: ToolDefinition = {
         } else {
           const content = fs.readFileSync(fullPath, "utf-8");
           if (pattern.test(content)) {
-            matches.push(path.relative(process.cwd(), fullPath));
+            matches.push(toWorkspaceRelativePath(fullPath));
           }
         }
       }

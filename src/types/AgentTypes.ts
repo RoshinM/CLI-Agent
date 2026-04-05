@@ -19,3 +19,16 @@ export interface Message {
   role: "system" | "user" | "assistant";
   content: string;
 }
+
+export interface StructuredToolError {
+  type?: string;
+  summary?: string;
+  interactivePromptDetected?: boolean;
+  promptPreview?: string;
+  command?: string;
+  cwd?: string;
+  message?: string;
+  stdout?: string;
+  stderr?: string;
+  outputWasTruncated?: boolean;
+}

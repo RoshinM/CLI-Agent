@@ -11,6 +11,7 @@ import type { Message } from "../src/types/AgentTypes.ts";
 import { parseModelResponse } from "../src/core/responseParser.ts";
 import {
   COLORS,
+  parseStructuredToolError,
   SpinnerController,
   printBanner,
   printDivider,
@@ -19,6 +20,7 @@ import {
   promptMultiline,
   promptText,
   previewText,
+  summarizeToolError,
 } from "../src/cli/terminalUi.ts";
 
 const registry = new ToolRegistry();
@@ -132,7 +134,26 @@ export async function mockChatLoop() {
 
       printSection("Tool", `Using ${parsed.toolCall.tool}`, COLORS.dim);
       loading.start(`Executing ${parsed.toolCall.tool}...`);
-      const result = await registry.execute(parsed.toolCall.tool, parsed.toolCall.args);
+      let result = await registry.execute(parsed.toolCall.tool, parsed.toolCall.args);
+      if (!result.success && parsed.toolCall.tool === "shell_tool" && parsed.toolCall.args.interactive !== true) {
+        const structuredError = parseStructuredToolError(result.error);
+        if (structuredError?.interactivePromptDetected) {
+          loading.stop();
+          if (structuredError.promptPreview) {
+            printSection("Interactive Prompt", structuredError.promptPreview, COLORS.yellow);
+          }
+
+          const rerunInteractively = await askForApproval(
+            "This command needs interactive input. Run it interactively so you can answer the prompts yourself?",
+          );
+
+          if (rerunInteractively) {
+            printSection("Tool", "Re-running shell_tool in interactive mode", COLORS.dim);
+            loading.start("Executing shell_tool interactively...");
+            result = await registry.execute(parsed.toolCall.tool, { ...parsed.toolCall.args, interactive: true });
+          }
+        }
+      }
       loading.stop();
 
       if (result.success) {
@@ -146,7 +167,7 @@ export async function mockChatLoop() {
       }
 
       const errText = `Tool Error: ${result.error}`;
-      printSection("Tool Error", `${parsed.toolCall.tool} -> ${result.error ?? "Unknown tool error"}`, COLORS.red);
+      printSection("Tool Error", `${parsed.toolCall.tool} -> ${summarizeToolError(result.error)}`, COLORS.red);
       conversationHistory.push({ role: "assistant", content: errText });
       memoryManager.persistWorkingMemory(conversationHistory);
       return processAIResponse(`Error: ${result.error}. Fix the tool call arguments and try again.`);

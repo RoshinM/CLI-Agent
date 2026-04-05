@@ -1,9 +1,7 @@
 import fs from "fs";
 import path from "path";
 import { undoManager } from "../core/UndoManager.ts";
-
-// Base project directory (restricts AI to this folder)
-const PROJECT_ROOT = process.cwd();
+import { getWorkspaceRoot, isWithinWorkspace, resolveWorkspacePath, toWorkspaceRelativePath } from "../core/workspace.ts";
 
 const RESTRICTED_FILES = [".env", "package.json", "pnpm-lock.yaml", ".gitignore"];
 const RESTRICTED_DIRS = [".git", "node_modules", ".gemini", "brain"];
@@ -40,8 +38,7 @@ function isRestricted(relativePath: string) {
 }
 
 function toProjectRelativePath(fullPath: string): string {
-  const relative = path.relative(PROJECT_ROOT, fullPath);
-  return relative ? relative.replace(/\\/g, "/") : ".";
+  return toWorkspaceRelativePath(fullPath);
 }
 
 function isHeavyDirectoryName(name: string): boolean {
@@ -61,10 +58,11 @@ function isOversizedDirectory(dir: string): boolean {
 }
 
 function isInsideHeavyDirectory(fullPath: string): boolean {
+  const workspaceRoot = getWorkspaceRoot();
   let current = path.resolve(fullPath);
 
-  while (current.startsWith(PROJECT_ROOT)) {
-    if (current !== PROJECT_ROOT) {
+  while (current.startsWith(workspaceRoot)) {
+    if (current !== workspaceRoot) {
       const name = path.basename(current);
       if (isHeavyDirectoryName(name) || isOversizedDirectory(current)) {
         return true;
@@ -143,8 +141,8 @@ function listFilesRecursive(dir: string, depth = 0): any[] {
 
 export const fileTool = {
   read: (relativePath: string): string => {
-    const fullPath = path.join(PROJECT_ROOT, relativePath);
-    if (!fullPath.startsWith(PROJECT_ROOT))
+    const fullPath = resolveWorkspacePath(relativePath);
+    if (!isWithinWorkspace(fullPath))
       throw new Error("Access denied: outside project folder");
     if (!fs.existsSync(fullPath)) return "File does not exist";
     if (isInsideHeavyDirectory(fullPath))
@@ -153,8 +151,8 @@ export const fileTool = {
   },
 
   write: (relativePath: string, content: string) => {
-    const fullPath = path.join(PROJECT_ROOT, relativePath);
-    if (!fullPath.startsWith(PROJECT_ROOT))
+    const fullPath = resolveWorkspacePath(relativePath);
+    if (!isWithinWorkspace(fullPath))
       throw new Error("Access denied: outside project folder");
     if (isRestricted(relativePath))
       throw new Error("Access denied: restricted file");
@@ -167,8 +165,8 @@ export const fileTool = {
   },
 
   replace: (relativePath: string, find: string, replaceWith: string, replaceAll = false, expectedCount?: number) => {
-    const fullPath = path.join(PROJECT_ROOT, relativePath);
-    if (!fullPath.startsWith(PROJECT_ROOT))
+    const fullPath = resolveWorkspacePath(relativePath);
+    if (!isWithinWorkspace(fullPath))
       throw new Error("Access denied: outside project folder");
     if (isRestricted(relativePath))
       throw new Error("Access denied: restricted file");
@@ -197,19 +195,19 @@ export const fileTool = {
   },
 
   mkdir: (relativePath: string) => {
-    const fullPath = path.join(PROJECT_ROOT, relativePath);
-    if (!fullPath.startsWith(PROJECT_ROOT))
+    const fullPath = resolveWorkspacePath(relativePath);
+    if (!isWithinWorkspace(fullPath))
       throw new Error("Access denied: outside project folder");
     fs.mkdirSync(fullPath, { recursive: true });
     return `Directory created: ${relativePath}`;
   },
 
   rename: (oldPath: string, newPath: string) => {
-    const oldFullPath = path.join(PROJECT_ROOT, oldPath);
-    const newFullPath = path.join(PROJECT_ROOT, newPath);
+    const oldFullPath = resolveWorkspacePath(oldPath);
+    const newFullPath = resolveWorkspacePath(newPath);
     if (
-      !oldFullPath.startsWith(PROJECT_ROOT) ||
-      !newFullPath.startsWith(PROJECT_ROOT)
+      !isWithinWorkspace(oldFullPath) ||
+      !isWithinWorkspace(newFullPath)
     ) {
       throw new Error("Access denied: outside project folder");
     }
@@ -223,8 +221,8 @@ export const fileTool = {
   },
 
   delete: (relativePath: string) => {
-    const fullPath = path.join(PROJECT_ROOT, relativePath);
-    if (!fullPath.startsWith(PROJECT_ROOT))
+    const fullPath = resolveWorkspacePath(relativePath);
+    if (!isWithinWorkspace(fullPath))
       throw new Error("Access denied: outside project folder");
     if (isRestricted(relativePath))
       throw new Error("Access denied: restricted file");
@@ -241,8 +239,8 @@ export const fileTool = {
   },
 
   list: (relativePath = ".") => {
-    const fullPath = path.join(PROJECT_ROOT, relativePath);
-    if (!fullPath.startsWith(PROJECT_ROOT))
+    const fullPath = resolveWorkspacePath(relativePath);
+    if (!isWithinWorkspace(fullPath))
       throw new Error("Access denied: outside project folder");
     if (!fs.existsSync(fullPath)) throw new Error("Directory does not exist");
     if (!fs.statSync(fullPath).isDirectory())

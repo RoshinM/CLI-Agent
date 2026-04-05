@@ -12,6 +12,11 @@ type AgentCallbacks = {
   onToolStart?: (toolName: string, args: Record<string, unknown>) => void;
   onToolResult?: (toolName: string, result: ToolResult) => void;
   onApiKeySwitch?: (nextIndex: number, totalKeys: number) => void;
+  onToolErrorRecovery?: (
+    toolName: string,
+    args: Record<string, unknown>,
+    result: ToolResult,
+  ) => Promise<ToolResult | undefined>;
 };
 
 export class Agent {
@@ -110,6 +115,16 @@ export class Agent {
 
       this.callbacks?.onToolStart?.(response.toolCall.tool, response.toolCall.args);
       lastToolResult = await this.registry.execute(response.toolCall.tool, response.toolCall.args);
+      if (!lastToolResult.success && this.callbacks?.onToolErrorRecovery) {
+        const recoveredResult = await this.callbacks.onToolErrorRecovery(
+          response.toolCall.tool,
+          response.toolCall.args,
+          lastToolResult,
+        );
+        if (recoveredResult) {
+          lastToolResult = recoveredResult;
+        }
+      }
       this.callbacks?.onToolResult?.(response.toolCall.tool, lastToolResult);
       if (lastToolResult.success) {
         this.conversationHistory.push({ role: "assistant", content: `Tool result: ${lastToolResult.result}` });

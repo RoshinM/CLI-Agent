@@ -3,6 +3,7 @@ import readline from "readline";
 import figlet from "figlet";
 import { confirm, input as textInput } from "@inquirer/prompts";
 import { createSpinner } from "nanospinner";
+import type { StructuredToolError } from "../types/AgentTypes.ts";
 
 export const COLORS = {
   blue: "\x1b[94m",
@@ -38,6 +39,47 @@ export function previewText(result: string | undefined): string {
 
   const singleLine = text.replace(/\s+/g, " ");
   return singleLine.length > 180 ? `${singleLine.slice(0, 177)}...` : singleLine;
+}
+
+function extractJsonSuffix(text: string): string | null {
+  const startIndex = text.indexOf("{");
+  if (startIndex === -1) {
+    return null;
+  }
+
+  return text.slice(startIndex);
+}
+
+export function parseStructuredToolError(errorText: string | undefined): StructuredToolError | null {
+  const text = (errorText ?? "").trim();
+  if (!text) {
+    return null;
+  }
+
+  const directCandidate = text.startsWith("{") ? text : extractJsonSuffix(text);
+  if (!directCandidate) {
+    return null;
+  }
+
+  try {
+    const parsed = JSON.parse(directCandidate);
+    return typeof parsed === "object" && parsed !== null ? (parsed as StructuredToolError) : null;
+  } catch {
+    return null;
+  }
+}
+
+export function summarizeToolError(errorText: string | undefined): string {
+  const structured = parseStructuredToolError(errorText);
+  if (structured?.summary) {
+    return structured.summary;
+  }
+
+  if (structured?.message) {
+    return previewText(structured.message);
+  }
+
+  return previewText(errorText);
 }
 
 export async function promptText(message: string) {

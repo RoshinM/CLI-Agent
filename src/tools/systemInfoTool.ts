@@ -1,5 +1,6 @@
 import os from "os";
 import type { ToolDefinition } from "../types/AgentTypes.ts";
+import { getWorkspaceRoot } from "../core/workspace.ts";
 
 export const systemInfoTool: ToolDefinition = {
   name: "system_info",
@@ -10,6 +11,7 @@ export const systemInfoTool: ToolDefinition = {
       release: os.release(),
       arch: os.arch(),
       cwd: process.cwd(),
+      workspaceRoot: getWorkspaceRoot(),
       uptime: os.uptime(),
       freeMemory: os.freemem(),
       totalMemory: os.totalmem(),

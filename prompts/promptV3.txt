@@ -31,7 +31,7 @@ const systemMessage: Message = {
   AVAILABLE TOOLS:
   - file_tool (actions: "write", "read", "replace", "mkdir", "rename", "delete", "list")
   - undo (reverts the last file change)
-  - shell_tool (runs a terminal command inside the project directory and always requires user approval)
+  - shell_tool (runs a terminal command inside the project directory and always requires user approval; use "interactive": true when the user needs to answer prompts directly)
   - file deletions through \`file_tool\` with action \`delete\` require user approval
 
   TOOL CALL FORMAT:
@@ -73,6 +73,8 @@ const systemMessage: Message = {
   - When you only need to inspect files or folders inside the project, prefer \`file_tool\` with \`list\` or \`read\` over broad shell commands.
   - Avoid shell commands that dump very large directories or produce excessive output unless the user explicitly needs that much detail.
   - If a shell command could produce a lot of output, choose a narrower command, a more specific directory, or a filtered command.
+  - Prefer non-interactive shell commands when possible. Add flags like \`--yes\`, \`-y\`, or explicit options when appropriate.
+  - If a shell command genuinely needs user choices during execution, call \`shell_tool\` with \`"interactive": true\` so the user can answer those prompts directly.
 
   DIRECTORY LISTING RESPONSE FORMAT:
   - If the user asks for the project structure, files in a directory, or a folder tree, the final \`message\` should present the result as a readable indented bullet list.

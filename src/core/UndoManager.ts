@@ -1,27 +1,36 @@
 import fs from "fs";
 import path from "path";
+import { getWorkspaceRoot, toWorkspaceRelativePath } from "./workspace.ts";
 
-const BACKUP_DIR = path.join(process.cwd(), ".backups");
 const MAX_BACKUP_FILES = 50;
 const MAX_BACKUP_AGE_MS = 7 * 24 * 60 * 60 * 1000;
 
 export class UndoManager {
   constructor() {
-    if (!fs.existsSync(BACKUP_DIR)) {
-      fs.mkdirSync(BACKUP_DIR, { recursive: true });
-    }
-
+    this.ensureBackupDir();
     this.cleanupBackups();
   }
 
   private stack: { path: string, backupPath: string }[] = [];
 
+  private getBackupDir(): string {
+    return path.join(getWorkspaceRoot(), ".backups");
+  }
+
+  private ensureBackupDir() {
+    const backupDir = this.getBackupDir();
+    if (!fs.existsSync(backupDir)) {
+      fs.mkdirSync(backupDir, { recursive: true });
+    }
+  }
+
   createBackup(filePath: string) {
     const fullPath = path.resolve(filePath);
     if (!fs.existsSync(fullPath)) return; // Don't backup if it doesn't exist (new file)
 
+    this.ensureBackupDir();
     const backupFileName = `backup_${Date.now()}_${path.basename(filePath)}`;
-    const backupPath = path.join(BACKUP_DIR, backupFileName);
+    const backupPath = path.join(this.getBackupDir(), backupFileName);
     
     fs.copyFileSync(fullPath, backupPath);
     this.stack.push({ path: fullPath, backupPath });
@@ -34,19 +43,20 @@ export class UndoManager {
 
     fs.copyFileSync(last.backupPath, last.path);
     fs.unlinkSync(last.backupPath);
-    return `Undone changes to ${path.relative(process.cwd(), last.path)}`;
+    return `Undone changes to ${toWorkspaceRelativePath(last.path)}`;
   }
 
   private cleanupBackups() {
-    if (!fs.existsSync(BACKUP_DIR)) {
+    const backupDir = this.getBackupDir();
+    if (!fs.existsSync(backupDir)) {
       return;
     }
 
     const activeBackupPaths = new Set(this.stack.map((item) => item.backupPath));
     const now = Date.now();
-    const files = fs.readdirSync(BACKUP_DIR)
+    const files = fs.readdirSync(backupDir)
       .map((name) => {
-        const fullPath = path.join(BACKUP_DIR, name);
+        const fullPath = path.join(backupDir, name);
         const stats = fs.statSync(fullPath);
         return { name, fullPath, stats };
       })
@@ -60,9 +70,9 @@ export class UndoManager {
       }
     }
 
-    const remainingFiles = fs.readdirSync(BACKUP_DIR)
+    const remainingFiles = fs.readdirSync(backupDir)
       .map((name) => {
-        const fullPath = path.join(BACKUP_DIR, name);
+        const fullPath = path.join(backupDir, name);
         const stats = fs.statSync(fullPath);
         return { fullPath, stats };
       })

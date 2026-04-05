@@ -25,6 +25,25 @@ function hasMessageField(value: Record<string, unknown>): value is Record<string
   return typeof value.message === "string";
 }
 
+function extractToolArgs(value: Record<string, unknown>): Record<string, unknown> {
+  const normalizedArgs: Record<string, unknown> = {};
+
+  for (const [key, fieldValue] of Object.entries(value)) {
+    if (key === "tool" || key === "thought" || key === "message") {
+      continue;
+    }
+
+    if ((key === "param" || key === "params" || key === "arguments") && isPlainObject(fieldValue)) {
+      Object.assign(normalizedArgs, fieldValue);
+      continue;
+    }
+
+    normalizedArgs[key] = fieldValue;
+  }
+
+  return normalizedArgs;
+}
+
 export function parseModelResponse(text: string): ParsedResponse {
   const raw = text ?? "";
   const trimmed = raw.trim();
@@ -75,11 +94,11 @@ export function parseModelResponse(text: string): ParsedResponse {
   }
 
   if (hasNonEmptyToolField(parsed)) {
-    const { tool, thought: _thought, ...args } = parsed;
+    const args = extractToolArgs(parsed);
     return {
       kind: "tool-call",
       toolCall: {
-        tool: tool.trim(),
+        tool: parsed.tool.trim(),
         args,
         thought,
       },

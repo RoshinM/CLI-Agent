@@ -9,8 +9,10 @@ import { undoTool } from './src/tools/undoTool.ts';
 import { shellTool } from './src/tools/shellTool.ts';
 
 import { getSystemPrompt } from './src/prompts/systemPrompt.ts';
+import { getWorkspaceRoot } from './src/core/workspace.ts';
 import {
   COLORS,
+  parseStructuredToolError,
   SpinnerController,
   previewText,
   printBanner,
@@ -18,6 +20,7 @@ import {
   printSection,
   promptConfirm,
   promptText,
+  summarizeToolError,
 } from './src/cli/terminalUi.ts';
 
 function getGroqApiKeys(): string[] {
@@ -55,6 +58,7 @@ registry.register(shellTool);
 
 const toolList = registry.getAllTools().map(t => `- ${t.name}: ${t.description}`).join('\n');
 const systemPrompt = getSystemPrompt(toolList);
+const workspaceRoot = getWorkspaceRoot();
 
 function needsConfirmation(requiresConfirmation: boolean | ((args: any) => boolean) | undefined, args: any): boolean {
   if (typeof requiresConfirmation === "function") {
@@ -103,12 +107,38 @@ const agent = new Agent(
       if (result.success) {
         printSection("Tool Result", `${toolName} -> ${previewText(result.result)}`, COLORS.green);
       } else {
-        printSection("Tool Error", `${toolName} -> ${result.error ?? "Unknown tool error"}`, COLORS.red);
+        printSection("Tool Error", `${toolName} -> ${summarizeToolError(result.error)}`, COLORS.red);
       }
     },
     onApiKeySwitch: (nextIndex, totalKeys) => {
       loading.stop();
       printSection("Rate Limit", `Switching to Groq API key ${nextIndex + 1} of ${totalKeys}`, COLORS.yellow);
+    },
+    onToolErrorRecovery: async (toolName, args, result) => {
+      if (toolName !== "shell_tool" || args.interactive === true) {
+        return undefined;
+      }
+
+      const structuredError = parseStructuredToolError(result.error);
+      if (!structuredError?.interactivePromptDetected) {
+        return undefined;
+      }
+
+      loading.stop();
+      if (structuredError.promptPreview) {
+        printSection("Interactive Prompt", structuredError.promptPreview, COLORS.yellow);
+      }
+
+      const rerunInteractively = await promptConfirm(
+        "This command needs interactive input. Run it interactively so you can answer the prompts yourself?",
+      );
+
+      if (!rerunInteractively) {
+        return undefined;
+      }
+
+      printSection("Tool", "Re-running shell_tool in interactive mode", COLORS.dim);
+      return registry.execute("shell_tool", { ...args, interactive: true });
     },
   },
 );
@@ -142,7 +172,7 @@ async function mainLoop() {
   }
 }
 
-printBanner("TS Agent", "Groq-backed CLI agent. Type 'exit' to quit.");
+printBanner("TS Agent", `Groq-backed CLI agent. Workspace: ${workspaceRoot}`);
 mainLoop().catch((err: any) => {
   loading.stop();
   printSection("Fatal Error", err.message, COLORS.red);
