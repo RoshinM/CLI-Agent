@@ -1,0 +1,28 @@
+services:
+  tsagent:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    stdin_open: true
+    tty: true
+    env_file:
+      - .env
+    environment:
+      AGENT_WORKSPACE: /app
+    volumes:
+      - .:/app
+      - /app/node_modules
+    command: ["node", "GAgent.ts"]
+
+  tsagent-mock:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    stdin_open: true
+    tty: true
+    environment:
+      AGENT_WORKSPACE: /app
+    volumes:
+      - .:/app
+      - /app/node_modules
+    command: ["node", "mockMode.ts"]

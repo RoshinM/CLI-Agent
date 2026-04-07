@@ -32,3 +32,9 @@ export interface StructuredToolError {
   stderr?: string;
   outputWasTruncated?: boolean;
 }
+
+export interface ShellRuntime {
+  executable: string;
+  argsPrefix: string[];
+  description: string;
+}

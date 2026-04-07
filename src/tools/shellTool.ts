@@ -1,7 +1,7 @@
 import { execFile, spawn } from "child_process";
 import { promisify } from "util";
 import path from "path";
-import type { ToolDefinition } from "../types/AgentTypes.ts";
+import type { ShellRuntime, ToolDefinition } from "../types/AgentTypes.ts";
 import { getWorkspaceRoot, isWithinWorkspace } from "../core/workspace.ts";
 
 const execFileAsync = promisify(execFile);
@@ -84,6 +84,31 @@ function looksInteractive(text: string): boolean {
   return INTERACTIVE_OUTPUT_PATTERNS.some((pattern) => pattern.test(normalized));
 }
 
+function getShellRuntime(): ShellRuntime {
+  const configuredShell = process.env.AGENT_SHELL?.trim();
+  if (configuredShell) {
+    return {
+      executable: configuredShell,
+      argsPrefix: process.platform === "win32" ? ["-NoProfile", "-Command"] : ["-lc"],
+      description: configuredShell,
+    };
+  }
+
+  if (process.platform === "win32") {
+    return {
+      executable: "powershell",
+      argsPrefix: ["-NoProfile", "-Command"],
+      description: "PowerShell",
+    };
+  }
+
+  return {
+    executable: "sh",
+    argsPrefix: ["-lc"],
+    description: "POSIX shell",
+  };
+}
+
 function buildFailurePayload(
   command: string,
   cwd: string,
@@ -117,9 +142,10 @@ function buildFailurePayload(
 
 function runInteractiveCommand(command: string, cwd: string, workspaceRoot: string, timeoutMs: number): Promise<string> {
   return new Promise((resolve, reject) => {
-    const child = spawn("powershell", ["-NoProfile", "-Command", command], {
+    const shellRuntime = getShellRuntime();
+    const child = spawn(shellRuntime.executable, [...shellRuntime.argsPrefix, command], {
       cwd,
-      windowsHide: true,
+      windowsHide: process.platform === "win32",
       stdio: "inherit",
     });
 
@@ -133,6 +159,7 @@ function runInteractiveCommand(command: string, cwd: string, workspaceRoot: stri
               summary: "Interactive command timed out before completion.",
               interactivePromptDetected: false,
               command,
+              shell: shellRuntime.description,
               cwd: path.relative(workspaceRoot, cwd).replace(/\\/g, "/") || ".",
               exitCode: null,
               message: `Interactive command timed out after ${timeoutMs / 1000} seconds.`,
@@ -154,6 +181,7 @@ function runInteractiveCommand(command: string, cwd: string, workspaceRoot: stri
               summary: "Interactive command failed to start.",
               interactivePromptDetected: false,
               command,
+              shell: shellRuntime.description,
               cwd: path.relative(workspaceRoot, cwd).replace(/\\/g, "/") || ".",
               exitCode: null,
               message: error.message,
@@ -173,6 +201,7 @@ function runInteractiveCommand(command: string, cwd: string, workspaceRoot: stri
           JSON.stringify(
             {
               command,
+              shell: shellRuntime.description,
               cwd: path.relative(workspaceRoot, cwd).replace(/\\/g, "/") || ".",
               exitCode: 0,
               interactive: true,
@@ -193,6 +222,7 @@ function runInteractiveCommand(command: string, cwd: string, workspaceRoot: stri
               summary: "Interactive command exited with an error.",
               interactivePromptDetected: false,
               command,
+              shell: shellRuntime.description,
               cwd: path.relative(workspaceRoot, cwd).replace(/\\/g, "/") || ".",
               exitCode: typeof code === "number" ? code : null,
               message: "Interactive command exited with a non-zero status.",
@@ -213,7 +243,7 @@ export const shellTool: ToolDefinition = {
   requiresConfirmation: true,
   confirmationMessage: buildConfirmationMessage,
   parameters: {
-    command: "string (required) - command to run in PowerShell",
+    command: "string (required) - command to run in the host shell",
     cwd: "string (optional) - working directory relative to the project root",
     timeoutMs: "number (optional) - timeout in milliseconds, default 10000, max 60000",
     interactive: "boolean (optional) - when true, hand control to the user for interactive prompts",
@@ -236,13 +266,14 @@ export const shellTool: ToolDefinition = {
     }
 
     try {
+      const shellRuntime = getShellRuntime();
       const { stdout, stderr } = await execFileAsync(
-        "powershell",
-        ["-NoProfile", "-Command", command],
+        shellRuntime.executable,
+        [...shellRuntime.argsPrefix, command],
         {
           cwd,
           timeout: timeoutMs,
-          windowsHide: true,
+          windowsHide: process.platform === "win32",
           maxBuffer: 512 * 1024,
         },
       );
@@ -253,6 +284,7 @@ export const shellTool: ToolDefinition = {
       return JSON.stringify(
         {
           command,
+          shell: shellRuntime.description,
           cwd: path.relative(workspaceRoot, cwd).replace(/\\/g, "/") || ".",
           exitCode: 0,
           stdout: limitedStdout.text,

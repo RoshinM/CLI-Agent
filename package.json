@@ -3,9 +3,11 @@
   "version": "1.0.0",
   "type": "module",
   "description": "",
-  "main": "index.js",
+  "main": "GAgent.ts",
   "scripts": {
-    "dev": "node --watch index.js"
+    "start": "node GAgent.ts",
+    "dev": "node --watch GAgent.ts",
+    "mock": "node mockMode.ts"
   },
   "keywords": [],
   "author": "",
@@ -28,7 +30,8 @@
     "readline": "^1.3.0"
   },
   "devDependencies": {
-    "@types/node": "^24.7.0"
+    "@types/node": "^24.7.0",
+    "typescript": "^5.9.3"
   },
   "bin": {
     "tsagent": "./GAgent.ts"

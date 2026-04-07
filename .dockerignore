@@ -1,0 +1,10 @@
+node_modules
+.git
+.backups
+context/long_term_memory.json
+memory_dump.json
+mock_payload.txt
+npm-debug.log*
+pnpm-debug.log*
+Dockerfile*
+docker-compose*.yml
