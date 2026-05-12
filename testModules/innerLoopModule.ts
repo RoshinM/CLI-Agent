@@ -1,19 +1,18 @@
-import { conversationHistory } from "../context/memory";
-import toolExecutor from "../tools/toolExecutor";
-import { Message } from "../types/ConversationHistory";
+import { conversationHistory } from "../context/memory.js";
+import toolExecutor from "../tools/toolExecutor.js";
+import { Message } from "../types/ConversationHistory.js";
 import readline from "readline";
-import persistMemory from "./persistMemory";
+import persistMemory from "./persistMemory.js";
 
 export default async function innerLoopModule(
   answer: string,
-  systemMessage: Message
+  systemMessage: Message,
 ) {
   let currentResponse = answer;
   let retries = 0;
   const MAX_RETRIES = 3;
 
   while (retries < MAX_RETRIES) {
-
     // Save the assistant response (tool call)
     conversationHistory.push({
       role: "assistant",
@@ -24,26 +23,25 @@ export default async function innerLoopModule(
 
     const toolExecution = toolExecutor(currentResponse);
 
-    // No tool detected → final answer
+    // If no tool detected then final answer
     if (!toolExecution) {
       console.log("\nFinal Answer:\n", currentResponse, "\n");
       break;
     }
 
-    // Tool succeeded
+    // If tool succeeded
     if (toolExecution.success) {
       console.log(`\nTool executed. Result:\n${toolExecution.result}\n`);
 
-      // Save tool output correctly
+      // Save tool output
       conversationHistory.push({
         role: "tool",
         content: toolExecution.result!,
       });
 
-    await persistMemory(conversationHistory);
+      await persistMemory(conversationHistory);
 
-
-      // Ask LLM to continue reasoning
+      // Ask llm to continue reasoning
       console.log("\n--- Paste next LLM response (continue reasoning) ---");
       console.log("(Finish with empty line)\n");
 
@@ -59,7 +57,7 @@ export default async function innerLoopModule(
       continue;
     }
 
-    // Tool failed
+    // if tool failed
     retries++;
 
     console.log(`\nTool failed: ${toolExecution.error}\n`);

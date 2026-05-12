@@ -1,5 +1,5 @@
 import fs from "fs";
-import { Message } from "../types/ConversationHistory";
+import { Message } from "../types/ConversationHistory.ts";
 
 export default function persistMemory(conversationHistory: Message[]) {
   fs.writeFileSync(

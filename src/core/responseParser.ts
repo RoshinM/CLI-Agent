@@ -44,6 +44,31 @@ function extractToolArgs(value: Record<string, unknown>): Record<string, unknown
   return normalizedArgs;
 }
 
+function validateToolCall(
+  toolName: string,
+  args: Record<string, unknown>,
+  hasMessage: boolean,
+): string | null {
+  const normalizedToolName = toolName.trim().toLowerCase();
+
+  if (normalizedToolName === "none") {
+    return 'The tool name "none" is never valid. If the task is complete, return only "thought" and "message" with no "tool" field.';
+  }
+
+  if (normalizedToolName === "file_tool") {
+    const action = typeof args.action === "string" ? args.action.trim() : "";
+    if (!action) {
+      return 'file_tool responses must include a non-empty "action" field. If the task is complete, remove the "tool" field and return a final answer.';
+    }
+  }
+
+  if (hasMessage) {
+    return 'Responses that include a "tool" field must be real tool calls, not final answers. If the task is complete, remove the "tool" field and return only "thought" and "message".';
+  }
+
+  return null;
+}
+
 export function parseModelResponse(text: string): ParsedResponse {
   const raw = text ?? "";
   const trimmed = raw.trim();
@@ -95,6 +120,15 @@ export function parseModelResponse(text: string): ParsedResponse {
 
   if (hasNonEmptyToolField(parsed)) {
     const args = extractToolArgs(parsed);
+    const validationError = validateToolCall(parsed.tool, args, hasMessageField(parsed));
+    if (validationError) {
+      return {
+        kind: "invalid",
+        reason: validationError,
+        raw,
+      };
+    }
+
     return {
       kind: "tool-call",
       toolCall: {

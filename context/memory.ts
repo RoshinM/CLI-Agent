@@ -1,4 +1,4 @@
-import { Message } from "../types/ConversationHistory";
+import { Message } from "../types/ConversationHistory.ts";
 
 export const conversationHistory : Message[] = [];
 

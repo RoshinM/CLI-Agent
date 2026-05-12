@@ -20,6 +20,8 @@ services:
       dockerfile: Dockerfile
     stdin_open: true
     tty: true
+    env_file:
+      - .env
     environment:
       AGENT_WORKSPACE: /app
     volumes:

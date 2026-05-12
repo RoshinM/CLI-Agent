@@ -1,6 +1,6 @@
 import fs from "fs";
 import path from "path";
-import { getWorkspaceRoot, toWorkspaceRelativePath } from "./workspace.ts";
+import { getAgentRoot, toWorkspaceRelativePath } from "./workspace.ts";
 
 const MAX_BACKUP_FILES = 50;
 const MAX_BACKUP_AGE_MS = 7 * 24 * 60 * 60 * 1000;
@@ -14,7 +14,7 @@ export class UndoManager {
   private stack: { path: string, backupPath: string }[] = [];
 
   private getBackupDir(): string {
-    return path.join(getWorkspaceRoot(), ".backups");
+    return path.join(getAgentRoot(), ".backups");
   }
 
   private ensureBackupDir() {

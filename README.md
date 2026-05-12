@@ -22,10 +22,12 @@ Create a CLI agent that can assist with various tasks while ensuring security an
 - A `.env` file based on `.env.example`
 
 ### Notes
-- `AGENT_WORKSPACE` is needed to be set so the agent knows which folder to conside as root folder.
+- The container image includes Git, so commands like `git init` can run inside Docker.
 
 ### Use another folder as the workspace
-- For now this agent can be used for local repositories by running:
+- Run:
+```powershell
 docker compose -f C:\Users\User\Desktop\Agents\TSAgent\docker-compose.yml run --rm -e AGENT_WORKSPACE=/workspace -v "{your-repo's-absolute-path}:/workspace" tsagent
+```
 
 This runs the app inside Docker while letting it read and edit the mounted host folder.

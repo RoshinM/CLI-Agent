@@ -1,5 +1,9 @@
 import fs from "fs";
 import path from "path";
+import { fileURLToPath } from "url";
+
+const MODULE_DIR = path.dirname(fileURLToPath(import.meta.url));
+const AGENT_ROOT = path.resolve(MODULE_DIR, "../..");
 
 function normalizeCandidate(value: string | undefined): string | null {
   if (!value) {
@@ -45,6 +49,10 @@ export function getWorkspaceRoot(): string {
   }
 
   return resolved;
+}
+
+export function getAgentRoot(): string {
+  return AGENT_ROOT;
 }
 
 export function resolveWorkspacePath(relativePath: string): string {
